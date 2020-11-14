@@ -3,6 +3,11 @@ package sirs.server;
 public class RRRDServer {
 
     public static void main(String[] args) {
-        System.out.println("This will be the RRRD Server");
+        String host = "localhost";
+        int port = 10000;
+
+        MainServer server = new MainServer(host, port);
+        server.run();
+
     }
 }
