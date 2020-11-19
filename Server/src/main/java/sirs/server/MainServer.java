@@ -44,35 +44,45 @@ class ServerThread extends Thread {
 
             StringBuilder sb = new StringBuilder();
             String line;
-            while((line = is.readLine()) != null) {
-                sb.append(line).append(System.lineSeparator());
-            }
-            String jsonString = sb.toString();
+            boolean exit = false;
+            do {
+                while((line = is.readLine()) != null) {
+                    sb.append(line).append(System.lineSeparator());
+                }
+                String jsonString = sb.toString();
 
-            JsonObject operationJson = JsonParser.parseString(jsonString).getAsJsonObject();
+                JsonObject operationJson = JsonParser.parseString(jsonString).getAsJsonObject();
 
-            JsonObject reply = null;
-            switch(operationJson.get("operation").getAsString()) {
-                case("RegisterUser"):
-                    reply = parseReceiveUserKey(operationJson);
-                    break;
-                case ("CreateFile"):
-                    reply = parseCreateFile(operationJson);
-                    break;
-                case("ShareFile"):
-                    break;
-                case("UpdateFile"):
-                    break;
-                case("GetFile"):
-                    break;
-                default:
-                    throw new IOException("Invalid operation");
-            }
+                JsonObject reply = null;
+                String operation = operationJson.get("operation").getAsString();
+                switch(operation) {
+                    case "RegisterUser":
+                        reply = parseReceiveUserKey(operationJson);
+                        break;
+                    case "CreateFile":
+                        reply = parseCreateFile(operationJson);
+                        break;
+                    case "ShareFile":
+                        break;
+                    case "UpdateFile":
+                        break;
+                    case "GetFile":
+                        break;
+                    case "Exit":
+                        (reply = JsonParser.parseString("{}").getAsJsonObject()).addProperty("response", "OK");
+                        exit = true;
+                        break;
+                    default:
+                        throw new IOException("Invalid operation");
+                }
+                sb.setLength(0);
 
-            OutputStreamWriter os = new OutputStreamWriter(_socket.getOutputStream(), StandardCharsets.UTF_8);
-            assert reply != null;
-            os.write(reply.toString());
-            os.flush();
+                OutputStreamWriter os = new OutputStreamWriter(_socket.getOutputStream(), StandardCharsets.UTF_8);
+                assert reply != null;
+                os.write(reply.toString());
+                os.flush();
+
+            } while(!exit);
             _socket.close();
         } catch (IOException e) {
             e.printStackTrace();
