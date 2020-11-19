@@ -1,115 +1,162 @@
 package sirs.server;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import javax.crypto.BadPaddingException;
+import javax.crypto.Cipher;
+import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.security.*;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
-import java.util.ArrayList;
-import java.util.TreeMap;
-
-public class MainServer {
-
-    private TreeMap<String, ClientInfo> _clients = new TreeMap<>();
-    private ArrayList<FileInfo> _files = new ArrayList<>();
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 
+class ServerThread extends Thread {
 
-    private String _host;
-    private int _port;
+    private ConcurrentHashMap<String, ClientInfo> _clients;
+    private List<FileInfo> _files;
+
     private char[] _password;
+    private SSLSocket _socket;
 
-    public MainServer(String host, int port) {
-        _host = host;
-        _port = port;
-        _password = "changeit".toCharArray();
 
+    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, List<FileInfo> files, char[] password, SSLSocket socket) {
+        _clients = clients;
+        _files = files;
+        _password = password;
+        _socket = socket;
     }
 
-    public void handleComms(SSLSocket s) {
+    @Override
+    public void run() {
         System.out.println("accepted");
         try {
-            InputStream is = new BufferedInputStream(s.getInputStream());
-            OutputStream os = new BufferedOutputStream(s.getOutputStream());
-            byte[] data = new byte[2048];
-            int len = is.read(data);
-            if (len <= 0) {
-                throw new IOException("no data received");
+            BufferedReader is = new BufferedReader(new InputStreamReader(_socket.getInputStream()));
+
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while((line = is.readLine()) != null) {
+                sb.append(line).append(System.lineSeparator());
             }
-            System.out.printf("server received %d bytes: %s%n",
-                    len, new String(data, 0, len));
-            os.write(data, 0, len);
+            String jsonString = sb.toString();
+
+            JsonObject operationJson = JsonParser.parseString(jsonString).getAsJsonObject();
+
+            JsonObject reply = null;
+            switch(operationJson.get("operation").getAsString()) {
+                case("RegisterUser"):
+                    reply = parseReceiveUserKey(operationJson);
+                    break;
+                case ("CreateFile"):
+                    reply = parseCreateFile(operationJson);
+                    break;
+                case("ShareFile"):
+                    break;
+                case("UpdateFile"):
+                    break;
+                case("GetFile"):
+                    break;
+                default:
+                    throw new IOException("Invalid operation");
+            }
+
+            OutputStreamWriter os = new OutputStreamWriter(_socket.getOutputStream(), StandardCharsets.UTF_8);
+            assert reply != null;
+            os.write(reply.toString());
             os.flush();
+            _socket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
 
     }
 
+    private JsonObject parseReceiveUserKey(JsonObject request) {
 
-    private SSLServerSocketFactory getServerSocketFactory() {
-        SSLServerSocketFactory ssf;
+        JsonObject reply;
         try {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
-            KeyStore ks = KeyStore.getInstance("PKCS12");
+            // Extract public key
+            String publicKeyString = request.get("pub_key").getAsString();
+            byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyString);
+            PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
-            ks.load(new FileInputStream("keys/server.keystore.pk12"), _password);
-            kmf.init(ks, _password);
+            // verify if public key is signed by the trusted CA
+            Certificate ca = getCACert();
+            ca.verify(publicKey);
 
-            KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-            ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
-            tmf.init(ksTrust);
-
-            ctx.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
-            ssf = ctx.getServerSocketFactory();
-            return ssf;
-        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | IOException | UnrecoverableKeyException | KeyManagementException e) {
-            e.printStackTrace();
+            String username = request.get("username").getAsString();
+            String url = request.get("url").getAsString();
+            receiveUserKey(url, publicKey, username);
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "OK");
+            return reply;
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException |
+                IOException | CertificateException | InvalidKeyException |
+                SignatureException | KeyStoreException | NoSuchProviderException e) {
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK: " + e.getMessage());
+            return reply;
         }
-        return null;
     }
-
-    public void start() {
-        SSLServerSocketFactory ssl = getServerSocketFactory();
-
-        assert ssl != null;
-        try(SSLServerSocket socket = (SSLServerSocket) ssl.createServerSocket(_port)) {
-            String[] protocols = new String[] {"TLSv1.3"};
-            String[] cipherSuites = new String[] {"TLS_AES_128_GCM_SHA256"};
-            socket.setEnabledProtocols(protocols);
-            socket.setNeedClientAuth(true);
-            socket.setEnabledCipherSuites(cipherSuites);
-
-            System.out.println("Running at " + _host + ":" + _port);
-
-            while (true) {
-                SSLSocket s = (SSLSocket) socket.accept();
-                handleComms(s);
-
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-
-    }
-
 
 
     public void receiveUserKey(String url, PublicKey publicKey, String username) { // Can also receive the message here and parse in this function
         _clients.put(username, new ClientInfo(url, publicKey, username));
     }
 
-    public void createNewFile(String path, ClientInfo owner, SecretKeySpec fileKey, String initialContent) {
+
+    private JsonObject parseCreateFile(JsonObject request) {
+        String fileKeyString = request.get("file_key").getAsString();
+        byte[] fileKeyBytes = Base64.getDecoder().decode(fileKeyString);
+
+        SecretKeySpec fileKey = new SecretKeySpec(fileKeyBytes, "AES");
+        JsonObject reply;
+        try {
+            String username = request.get("username").getAsString();
+            if(!_clients.containsKey(username)) {
+                // throw new exception
+            }
+            // Checksum (extract and verify)
+            createNewFile(request.get("path").getAsString(), _clients.get(username), fileKey, request.get("content").getAsString());
+            // Send file to backup
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "OK");
+            return reply;
+
+        } catch (IOException | NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+            e.printStackTrace();
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK: " + e.getMessage());
+            return reply;
+        }
+    }
+
+    public void createNewFile(String path, ClientInfo owner, SecretKeySpec fileKey, String initialContent) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         File file = new File(path);
-        _files.add(new FileInfo(file, owner, fileKey));
+
+        byte[] contentBytes = Base64.getDecoder().decode(initialContent);
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, fileKey);
+        byte[] decipherContent = cipher.doFinal(contentBytes);
+
+        String content = new String(decipherContent, 0, decipherContent.length);
+        FileInfo fi = new FileInfo(file, owner, fileKey);
+        fi.addEditor(owner);
+        _files.add(fi);
 
         try (FileWriter fw = new FileWriter(file)) {
-            fw.write(initialContent);
+            fw.write(content);
         } catch (IOException e) {
-            e.printStackTrace();
+            throw new IOException(e.getMessage());
         }
     }
 
@@ -143,4 +190,82 @@ public class MainServer {
         // Send fo to backup;
     }
 
+
+    private Certificate getCACert() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException {
+        KeyStore ksTrust = KeyStore.getInstance("PKCS12");
+        ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
+        return ksTrust.getCertificate("caroot");
+    }
+
+
+}
+
+
+
+public class MainServer {
+
+    private ConcurrentHashMap<String, ClientInfo> _clients = new ConcurrentHashMap<>();
+    private List<FileInfo> _files = Collections.synchronizedList(new ArrayList<>());
+
+    private String _host;
+    private int _port;
+    private char[] _password;
+
+    public MainServer(String host, int port) {
+        _host = host;
+        _port = port;
+        _password = "changeit".toCharArray();
+
+    }
+
+
+    
+    public void start() {
+        SSLServerSocketFactory ssl = getServerSocketFactory();
+
+        assert ssl != null;
+        try(SSLServerSocket socket = (SSLServerSocket) ssl.createServerSocket(_port)) {
+            String[] protocols = new String[] {"TLSv1.3"};
+            String[] cipherSuites = new String[] {"TLS_AES_128_GCM_SHA256"};
+            socket.setEnabledProtocols(protocols);
+            socket.setNeedClientAuth(true);
+            socket.setEnabledCipherSuites(cipherSuites);
+
+            System.out.println("Running at " + _host + ":" + _port);
+
+            while (true) {
+                SSLSocket s = (SSLSocket) socket.accept();
+                ServerThread st = new ServerThread(_clients, _files, _password, s);
+                st.start();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private SSLServerSocketFactory getServerSocketFactory() {
+        SSLServerSocketFactory ssf;
+        try {
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+
+            ks.load(new FileInputStream("keys/server.keystore.pk12"), _password);
+            kmf.init(ks, _password);
+
+            KeyStore ksTrust = KeyStore.getInstance("PKCS12");
+            ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+            tmf.init(ksTrust);
+
+            ctx.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
+            ssf = ctx.getServerSocketFactory();
+            return ssf;
+        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | IOException | UnrecoverableKeyException | KeyManagementException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
 }

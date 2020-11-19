@@ -2,12 +2,14 @@ package sirs.server;
 
 import javax.crypto.spec.SecretKeySpec;
 import java.io.File;
+import java.util.ArrayList;
 
 public class FileInfo {
     private File _file;
     private int _currentVersion = 1;
     private ClientInfo _owner;
     private SecretKeySpec _fileKey;
+    private ArrayList<ClientInfo> _editors = new ArrayList<>();
 
     public FileInfo(File file, ClientInfo owner, SecretKeySpec fileKey) {
         _file = file;
@@ -33,5 +35,9 @@ public class FileInfo {
 
     public void updateVersion() {
         _currentVersion++;
+    }
+
+    public void addEditor(ClientInfo client) {
+        _editors.add(client);
     }
 }
