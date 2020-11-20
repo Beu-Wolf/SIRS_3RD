@@ -11,6 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
@@ -34,33 +35,33 @@ class ServerThread extends Thread {
         _files = files;
         _password = password;
         _socket = socket;
+        _clients.put("testUser", new ClientInfo(null, null, "testUser"));
     }
 
     @Override
     public void run() {
         System.out.println("accepted");
         try {
-            BufferedReader is = new BufferedReader(new InputStreamReader(_socket.getInputStream()));
+            ObjectInputStream is = new ObjectInputStream(_socket.getInputStream());
+            ObjectOutputStream os = new ObjectOutputStream(_socket.getOutputStream());
 
-            StringBuilder sb = new StringBuilder();
             String line;
             boolean exit = false;
-            do {
-                while((line = is.readLine()) != null) {
-                    sb.append(line).append(System.lineSeparator());
-                }
-                String jsonString = sb.toString();
 
-                JsonObject operationJson = JsonParser.parseString(jsonString).getAsJsonObject();
+            while(!exit ) {
+                line = (String) is.readObject();
+                System.out.println("read: " + line);
+
+                JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
 
                 JsonObject reply = null;
                 String operation = operationJson.get("operation").getAsString();
-                switch(operation) {
+                switch (operation) {
                     case "RegisterUser":
                         reply = parseReceiveUserKey(operationJson);
                         break;
                     case "CreateFile":
-                        reply = parseCreateFile(operationJson);
+                        reply = parseCreateFile(operationJson, is);
                         break;
                     case "ShareFile":
                         break;
@@ -75,16 +76,16 @@ class ServerThread extends Thread {
                     default:
                         throw new IOException("Invalid operation");
                 }
-                sb.setLength(0);
-
-                OutputStreamWriter os = new OutputStreamWriter(_socket.getOutputStream(), StandardCharsets.UTF_8);
-                assert reply != null;
-                os.write(reply.toString());
-                os.flush();
-
-            } while(!exit);
+                if (!exit) {
+                    assert reply != null;
+                    System.out.println("Sending: " + reply);
+                    os.writeObject(reply.toString());
+                }
+            }
+            is.close();
+            os.close();
             _socket.close();
-        } catch (IOException e) {
+        } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
 
@@ -124,7 +125,7 @@ class ServerThread extends Thread {
     }
 
 
-    private JsonObject parseCreateFile(JsonObject request) {
+    private JsonObject parseCreateFile(JsonObject request, ObjectInputStream is) {
         String fileKeyString = request.get("file_key").getAsString();
         byte[] fileKeyBytes = Base64.getDecoder().decode(fileKeyString);
 
@@ -136,13 +137,14 @@ class ServerThread extends Thread {
                 // throw new exception
             }
             // Checksum (extract and verify)
-            createNewFile(request.get("path").getAsString(), _clients.get(username), fileKey, request.get("content").getAsString());
+
+            createNewFile(request.get("path").getAsString(), _clients.get(username), fileKey,  Base64.getDecoder().decode(request.get("content").getAsString()));
             // Send file to backup
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+        } catch (IOException | NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException | ClassNotFoundException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -150,24 +152,21 @@ class ServerThread extends Thread {
         }
     }
 
-    public void createNewFile(String path, ClientInfo owner, SecretKeySpec fileKey, String initialContent) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    public void createNewFile(String path, ClientInfo owner, SecretKeySpec fileKey, byte[] fileContent) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, ClassNotFoundException {
         File file = new File(path);
 
-        byte[] contentBytes = Base64.getDecoder().decode(initialContent);
+        Files.write(file.toPath(), fileContent);
+
+        /*byte[] contentBytes = Base64.getDecoder().decode(initialContent);
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
         cipher.init(Cipher.DECRYPT_MODE, fileKey);
         byte[] decipherContent = cipher.doFinal(contentBytes);
 
-        String content = new String(decipherContent, 0, decipherContent.length);
+        String content = new String(decipherContent, 0, decipherContent.length);*/
         FileInfo fi = new FileInfo(file, owner, fileKey);
         fi.addEditor(owner);
         _files.add(fi);
 
-        try (FileWriter fw = new FileWriter(file)) {
-            fw.write(content);
-        } catch (IOException e) {
-            throw new IOException(e.getMessage());
-        }
     }
 
     public void shareFile(String owner, String clientToShare, String path) {
