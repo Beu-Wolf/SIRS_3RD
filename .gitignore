@@ -24,7 +24,7 @@ hs_err_pid*
 
 # IDEA files
 .idea
-SIRS_3RD.iml
+*.iml
 
 # Maven
 target/
