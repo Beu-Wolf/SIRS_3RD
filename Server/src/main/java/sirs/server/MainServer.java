@@ -40,18 +40,15 @@ class ServerThread extends Thread {
     public void run() {
         System.out.println("accepted");
         try {
-            BufferedReader is = new BufferedReader(new InputStreamReader(_socket.getInputStream()));
+            ObjectInputStream is = new ObjectInputStream(_socket.getInputStream());
+            ObjectOutputStream os = new ObjectOutputStream(_socket.getOutputStream());
 
-            StringBuilder sb = new StringBuilder();
             String line;
             boolean exit = false;
-            do {
-                while((line = is.readLine()) != null) {
-                    sb.append(line).append(System.lineSeparator());
-                }
-                String jsonString = sb.toString();
 
-                JsonObject operationJson = JsonParser.parseString(jsonString).getAsJsonObject();
+            while(!exit) {
+                line = (String) is.readObject();
+                JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
 
                 JsonObject reply = null;
                 String operation = operationJson.get("operation").getAsString();
@@ -75,16 +72,15 @@ class ServerThread extends Thread {
                     default:
                         throw new IOException("Invalid operation");
                 }
-                sb.setLength(0);
-
-                OutputStreamWriter os = new OutputStreamWriter(_socket.getOutputStream(), StandardCharsets.UTF_8);
-                assert reply != null;
-                os.write(reply.toString());
-                os.flush();
-
-            } while(!exit);
+                if (!exit) {
+                    assert reply != null;
+                    os.writeObject(reply.toString());
+                }
+            }
+            is.close();
+            os.close();
             _socket.close();
-        } catch (IOException e) {
+        } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
 
