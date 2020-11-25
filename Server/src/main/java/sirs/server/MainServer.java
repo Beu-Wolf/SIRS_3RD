@@ -2,6 +2,9 @@ package sirs.server;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import sirs.server.exceptions.InvalidEditorException;
+import sirs.server.exceptions.MissingFileException;
+import sirs.server.exceptions.NoClientException;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
@@ -67,8 +70,8 @@ class ServerThread extends Thread {
                         break;
                     case "ShareFile":
                         break;
-                    case "UpdateFile":
-                        break;
+                    case "EditFile":
+                        reply = parseEditFile(operationJson, is);
                     case "GetFile":
                         break;
                     case "Exit":
@@ -133,7 +136,7 @@ class ServerThread extends Thread {
         try {
             String username = request.get("username").getAsString();
             if(!_clients.containsKey(username)) {
-                // throw new exception
+                throw new NoClientException(username);
             }
 
             String fileChecksum = request.get("file_checksum").getAsString();
@@ -143,15 +146,7 @@ class ServerThread extends Thread {
 
             int fileSize = request.get("filesize").getAsInt();
 
-            ByteArrayOutputStream byteArray = new ByteArrayOutputStream();
-            byte[] buffer = new byte[8*1024];
-            int readBytes = 0;
-            while(readBytes < fileSize) {
-                int s = is.read(buffer);
-                if (s == -1) break;
-                byteArray.write(buffer, 0, s);
-                readBytes+=s;
-            }
+            ByteArrayOutputStream byteArray = receiveFileFromSocket(is, fileSize);
 
             byte[] content = byteArray.toByteArray();
 
@@ -161,7 +156,7 @@ class ServerThread extends Thread {
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException e) {
+        } catch (IOException | NoClientException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -190,6 +185,66 @@ class ServerThread extends Thread {
         fi.addEditor(owner);
         _files.add(fi);
 
+    }
+
+    public JsonObject parseEditFile(JsonObject request, ObjectInputStream is) {
+        JsonObject reply;
+        try {
+            String username = request.get("username").getAsString();
+            if(!_clients.containsKey(username)) {
+                throw new NoClientException(username);
+            }
+
+            Path filePath;
+            if (request.get("ownerEdit").getAsBoolean()) {
+                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, username, request.get("path").getAsString());
+            } else {
+                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString());
+            }
+
+            // Verify if file exists
+            FileInfo fi = _files.stream().filter(x -> x.getFile().toPath().equals(filePath)).findFirst().orElse(null);
+            if(fi == null) {
+                 throw new MissingFileException(filePath.toString());
+            }
+
+            // Verify permission to edit file
+            if (!fi.containsEditor(_clients.get(username))) {
+                throw new InvalidEditorException(username, filePath.toString());
+            }
+
+            String fileChecksum = request.get("file_checksum").getAsString();
+            byte[] checksum = Base64.getDecoder().decode(fileChecksum);
+
+            // TODO: Change to receive small number of bytes each time
+
+            int fileSize = request.get("filesize").getAsInt();
+
+            ByteArrayOutputStream byteArray = receiveFileFromSocket(is, fileSize);
+
+            byte[] content = byteArray.toByteArray();
+            editFile(fi, checksum, content);
+
+            // Send to backup
+            // Send file to backup
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "OK");
+            return reply;
+
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException e) {
+            e.printStackTrace();
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK: " + e.getMessage());
+            return reply;
+        }
+    }
+
+
+
+    public void editFile(FileInfo fi, byte[] checksum, byte[] content) throws IOException {
+        Files.write(fi.getFile().toPath(), content);
+        fi.setLatestChecksum(checksum);
+        fi.updateVersion();
     }
 
     public void shareFile(String owner, String clientToShare, String path) {
@@ -240,6 +295,19 @@ class ServerThread extends Thread {
         MessageDigest messageDigest = MessageDigest.getInstance(DIGEST_ALGO);
         messageDigest.update(cipheredBytes);
         return messageDigest.digest();
+    }
+
+    private ByteArrayOutputStream receiveFileFromSocket(ObjectInputStream is, int fileSize) throws IOException {
+        ByteArrayOutputStream byteArray = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8 * 1024];
+        int readBytes = 0;
+        while (readBytes < fileSize) {
+            int s = is.read(buffer);
+            if (s == -1) break;
+            byteArray.write(buffer, 0, s);
+            readBytes += s;
+        }
+        return byteArray;
     }
 
 

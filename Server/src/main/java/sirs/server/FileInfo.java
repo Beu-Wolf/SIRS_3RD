@@ -33,11 +33,19 @@ public class FileInfo {
         return _latestChecksum;
     }
 
+    public void setLatestChecksum(byte[] LatestChecksum) {
+        _latestChecksum = LatestChecksum;
+    }
+
     public void updateVersion() {
         _currentVersion++;
     }
 
     public void addEditor(ClientInfo client) {
         _editors.add(client);
+    }
+
+    public boolean containsEditor(ClientInfo client) {
+        return _editors.contains(client);
     }
 }

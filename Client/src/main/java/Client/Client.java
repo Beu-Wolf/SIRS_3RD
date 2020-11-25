@@ -3,7 +3,6 @@ package Client;
 import Client.exceptions.InvalidPathException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.internal.bind.DateTypeAdapter;
 
 import javax.crypto.*;
 import javax.net.ssl.*;
@@ -12,13 +11,9 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.*;
-import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.Scanner;
+import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class Client {
@@ -28,6 +23,8 @@ public class Client {
     private int _serverPort;
     SSLSocket _currentConnectionSocket;
     private char[] _keyStorePass = "changeit".toCharArray();
+    private HashMap<Path, FileInfo> _files = new HashMap<>();
+
 
     public Client(String serverHost, int serverPort) {
         _serverHost = serverHost;
@@ -52,6 +49,8 @@ public class Client {
                         break;
                     } else if(Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
+                    } else if(Pattern.matches("^edit file$", command)) {
+                        parseEditFile(scanner, os, is);
                     }
 
 
@@ -82,8 +81,9 @@ public class Client {
     public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException {
 
         Path filePath = FileSystems.getDefault().getPath("files", path);
+        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
 
-        if(Arrays.asList(StreamSupport.stream(filePath.spliterator(), false).map(Path::toString).toArray(String[]::new)).contains("sharedFiles")) {
+        if(Arrays.asList(StreamSupport.stream(relativeFilePath.spliterator(), false).map(Path::toString).toArray(String[]::new)).contains("sharedFiles")) {
             throw new InvalidPathException("Can't create a file in the sharedFilesFolder");
         }
 
@@ -92,11 +92,13 @@ public class Client {
         keyGen.init(256); // for example
         SecretKey secretKey = keyGen.generateKey();
 
+        _files.put(relativeFilePath, new FileInfo(_username, new File(String.valueOf(filePath)), secretKey));
+
         // Construct JSON request
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "CreateFile");
         request.addProperty("username", _username);
-        request.addProperty("path", path);
+        request.addProperty("path", relativeFilePath.toString());
 
         byte[] fileBytes = Files.readAllBytes(filePath);
 
@@ -112,14 +114,7 @@ public class Client {
         os.writeObject(request.toString());
 
         // Send file 8k bytes at a time
-        int chunk = 8*1024;
-        int fileStart = 0;
-        while(fileStart < cipheredFile.length) {
-            int end = Math.min(cipheredFile.length, fileStart + chunk);
-            os.write(Arrays.copyOfRange(cipheredFile, fileStart, end));
-            os.flush();
-            fileStart += chunk;
-        }
+        sendFileToServer(os, cipheredFile);
 
         String line;
         System.out.println("Waiting");
@@ -132,16 +127,88 @@ public class Client {
 
     }
 
+    public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to edit (from the files directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.println("Filename: " + path);
+
+        try {
+            editFile(path, os, is);
+        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException {
+        Path filePath = FileSystems.getDefault().getPath("files", path);
+        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
+
+        if(!_files.containsKey(relativeFilePath)) {
+            throw new InvalidPathException("File does not exist");
+        }
+
+        SecretKey fileSecretKey = _files.get(relativeFilePath).getFileSymKey();
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "EditFile");
+        request.addProperty("username", _username);
+
+
+        // Remove the sharedFiles directory for path (server does not care about it)
+        if(relativeFilePath.startsWith("sharedFiles")) {
+            relativeFilePath = relativeFilePath.subpath(1, relativeFilePath.getNameCount());
+            request.addProperty("ownerEdit", false);
+        } else {
+            request.addProperty("ownerEdit", true);
+        }
+
+        request.addProperty("path", relativeFilePath.toString());
+
+        byte[] fileBytes = Files.readAllBytes(filePath);
+
+        request.addProperty("file_checksum", Base64.getEncoder().encodeToString(computeFileChecksum(fileBytes)));
+
+        byte[] cipheredFile = cipherFile(fileBytes, fileSecretKey);
+
+        request.addProperty("filesize", cipheredFile.length);
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        sendFileToServer(os, cipheredFile);
+
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        System.out.println("Result: " + reply.get("response").getAsString());
+
+    }
+
+    private void sendFileToServer(ObjectOutputStream os, byte[] cipheredFile) throws IOException {
+        int chunk = 8 * 1024;
+        int fileStart = 0;
+        while (fileStart < cipheredFile.length) {
+            int end = Math.min(cipheredFile.length, fileStart + chunk);
+            os.write(Arrays.copyOfRange(cipheredFile, fileStart, end));
+            os.flush();
+            fileStart += chunk;
+        }
+    }
+
     private byte[] computeFileChecksum(byte[] fileBytes) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         // Compute checksum of this File and cipher with Public Key
-        byte[] checksum = HashBytes(fileBytes);
+        byte[] checksum = hashBytes(fileBytes);
 
         // Cipher with client's Public Key
         PrivateKey clientPrivateKey = getClientPrivateKey();
         return cipherHash(checksum, clientPrivateKey);
     }
 
-    private byte[] HashBytes(byte[] cipheredBytes) throws NoSuchAlgorithmException {
+    private byte[] hashBytes(byte[] cipheredBytes) throws NoSuchAlgorithmException {
         final String DIGEST_ALGO = "SHA-256";
         MessageDigest messageDigest = MessageDigest.getInstance(DIGEST_ALGO);
         messageDigest.update(cipheredBytes);

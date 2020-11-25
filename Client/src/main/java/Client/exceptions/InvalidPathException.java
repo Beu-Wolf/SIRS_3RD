@@ -1,12 +1,7 @@
 package Client.exceptions;
 
 public class InvalidPathException extends Exception{
-    private final String _message;
 
-    public InvalidPathException(String message) { _message = message; }
+    public InvalidPathException(String message) { super(message); }
 
-    @Override
-    public String getMessage() {
-        return _message;
-    }
 }
