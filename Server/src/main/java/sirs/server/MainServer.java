@@ -11,7 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
@@ -28,6 +28,8 @@ class ServerThread extends Thread {
 
     private char[] _password;
     private SSLSocket _socket;
+
+    private String filesRootFolder = "files";
 
 
     public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, List<FileInfo> files, char[] password, SSLSocket socket) {
@@ -126,25 +128,40 @@ class ServerThread extends Thread {
 
 
     private JsonObject parseCreateFile(JsonObject request, ObjectInputStream is) {
-        String fileKeyString = request.get("file_key").getAsString();
-        byte[] fileKeyBytes = Base64.getDecoder().decode(fileKeyString);
 
-        SecretKeySpec fileKey = new SecretKeySpec(fileKeyBytes, "AES");
         JsonObject reply;
         try {
             String username = request.get("username").getAsString();
             if(!_clients.containsKey(username)) {
                 // throw new exception
             }
-            // Checksum (extract and verify)
 
-            createNewFile(request.get("path").getAsString(), _clients.get(username), fileKey,  Base64.getDecoder().decode(request.get("content").getAsString()));
+            String fileChecksum = request.get("file_checksum").getAsString();
+            byte[] checksum = Base64.getDecoder().decode(fileChecksum);
+
+            // TODO: Change to receive small number of bytes each time
+
+            int fileSize = request.get("filesize").getAsInt();
+
+            ByteArrayOutputStream byteArray = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8*1024];
+            int readBytes = 0;
+            while(readBytes < fileSize) {
+                int s = is.read(buffer);
+                if (s == -1) break;
+                byteArray.write(buffer, 0, s);
+                readBytes+=s;
+            }
+
+            byte[] content = byteArray.toByteArray();
+
+            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, content);
             // Send file to backup
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoSuchPaddingException | NoSuchAlgorithmException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException | ClassNotFoundException e) {
+        } catch (IOException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -152,8 +169,14 @@ class ServerThread extends Thread {
         }
     }
 
-    public void createNewFile(String path, ClientInfo owner, SecretKeySpec fileKey, byte[] fileContent) throws IOException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, ClassNotFoundException {
-        File file = new File(path);
+    public void createNewFile(String path, ClientInfo owner, byte[] checksum, byte[] fileContent) throws IOException {
+
+        //Concatenate username with file path
+        Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, owner.getUsername(), path);
+
+        Files.createDirectories(newFilePath.getParent());
+
+        File file = new File(String.valueOf(newFilePath));
 
         Files.write(file.toPath(), fileContent);
 
@@ -163,7 +186,7 @@ class ServerThread extends Thread {
         byte[] decipherContent = cipher.doFinal(contentBytes);
 
         String content = new String(decipherContent, 0, decipherContent.length);*/
-        FileInfo fi = new FileInfo(file, owner, fileKey);
+        FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
         _files.add(fi);
 
@@ -204,6 +227,19 @@ class ServerThread extends Thread {
         KeyStore ksTrust = KeyStore.getInstance("PKCS12");
         ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
         return ksTrust.getCertificate("caroot");
+    }
+
+    private byte[] decipherHash(byte[] bytes, PublicKey clientPubKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, clientPubKey);
+        return cipher.doFinal(bytes);
+    }
+
+    private byte[] hashBytes(byte[] cipheredBytes) throws NoSuchAlgorithmException {
+        final String DIGEST_ALGO = "SHA-256";
+        MessageDigest messageDigest = MessageDigest.getInstance(DIGEST_ALGO);
+        messageDigest.update(cipheredBytes);
+        return messageDigest.digest();
     }
 
 
@@ -277,4 +313,6 @@ public class MainServer {
         }
         return null;
     }
+
+
 }

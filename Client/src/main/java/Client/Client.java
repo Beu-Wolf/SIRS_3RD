@@ -1,21 +1,25 @@
 package Client;
 
+import Client.exceptions.InvalidPathException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.internal.bind.DateTypeAdapter;
 
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
+import javax.crypto.*;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.*;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Scanner;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 public class Client {
 
@@ -52,17 +56,7 @@ public class Client {
 
 
             }
-        } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
-        } catch (KeyStoreException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (CertificateException e) {
-            e.printStackTrace();
-        } catch (UnrecoverableKeyException e) {
-            e.printStackTrace();
-        } catch (KeyManagementException e) {
+        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException e) {
             e.printStackTrace();
         }
         scanner.close();
@@ -71,21 +65,27 @@ public class Client {
 
 
     public void parseCreateFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
-        System.out.print("Please enter filename: ");
+        System.out.print("Please enter file path (from the files directory): ");
         String path = scanner.nextLine().trim();
         System.out.println("Filename: " + path);
         try {
             createFile(path, os, is);
-        } catch (IOException | ClassNotFoundException e) {
+        }catch (InvalidPathException e) {
+            System.out.println(e.getMessage());
+        } catch (IOException | ClassNotFoundException | IllegalBlockSizeException | InvalidKeyException | BadPaddingException | NoSuchPaddingException | CertificateException | KeyStoreException | UnrecoverableKeyException e) {
             e.printStackTrace();
         }
 
     }
 
     /* Types to be better thought out */
-    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException {
+    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException {
 
         Path filePath = FileSystems.getDefault().getPath("files", path);
+
+        if(Arrays.asList(StreamSupport.stream(filePath.spliterator(), false).map(Path::toString).toArray(String[]::new)).contains("sharedFiles")) {
+            throw new InvalidPathException("Can't create a file in the sharedFilesFolder");
+        }
 
         // Generate AES key for the file
         KeyGenerator keyGen = KeyGenerator.getInstance("AES");
@@ -97,12 +97,29 @@ public class Client {
         request.addProperty("operation", "CreateFile");
         request.addProperty("username", _username);
         request.addProperty("path", path);
-        request.addProperty("file_key", Base64.getEncoder().encodeToString(secretKey.getEncoded()));
-        request.addProperty("content", Base64.getEncoder().encodeToString(Files.readAllBytes(filePath)));
 
+        byte[] fileBytes = Files.readAllBytes(filePath);
+
+        request.addProperty("file_checksum", Base64.getEncoder().encodeToString(computeFileChecksum(fileBytes)));
+
+        // Encrypt with generated key
+        byte[] cipheredFile = cipherFile(fileBytes, secretKey);
+
+        // TODO: Change this to send file in little chunks
+        request.addProperty("filesize", cipheredFile.length);
 
         System.out.println(request.toString());
         os.writeObject(request.toString());
+
+        // Send file 8k bytes at a time
+        int chunk = 8*1024;
+        int fileStart = 0;
+        while(fileStart < cipheredFile.length) {
+            int end = Math.min(cipheredFile.length, fileStart + chunk);
+            os.write(Arrays.copyOfRange(cipheredFile, fileStart, end));
+            os.flush();
+            fileStart += chunk;
+        }
 
         String line;
         System.out.println("Waiting");
@@ -113,6 +130,34 @@ public class Client {
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
         System.out.println("Result: " + reply.get("response").getAsString());
 
+    }
+
+    private byte[] computeFileChecksum(byte[] fileBytes) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        // Compute checksum of this File and cipher with Public Key
+        byte[] checksum = HashBytes(fileBytes);
+
+        // Cipher with client's Public Key
+        PrivateKey clientPrivateKey = getClientPrivateKey();
+        return cipherHash(checksum, clientPrivateKey);
+    }
+
+    private byte[] HashBytes(byte[] cipheredBytes) throws NoSuchAlgorithmException {
+        final String DIGEST_ALGO = "SHA-256";
+        MessageDigest messageDigest = MessageDigest.getInstance(DIGEST_ALGO);
+        messageDigest.update(cipheredBytes);
+        return messageDigest.digest();
+    }
+
+    private byte[] cipherFile(byte[] fileBytes, SecretKey symKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, symKey);
+       return cipher.doFinal(fileBytes);
+    }
+
+    private byte[] cipherHash(byte[] bytes, PrivateKey clientPrivKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, clientPrivKey);
+        return cipher.doFinal(bytes);
     }
 
     public void getFile(String path) {}
@@ -158,6 +203,12 @@ public class Client {
         _currentConnectionSocket.setEnabledCipherSuites(cipherSuites);
 
         _currentConnectionSocket.startHandshake();
+    }
+
+    private PrivateKey getClientPrivateKey() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException {
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        return (PrivateKey) ks.getKey("localhost", _keyStorePass);
     }
 
     // How to create the socket to communicate with the Server

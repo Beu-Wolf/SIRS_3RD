@@ -8,13 +8,13 @@ public class FileInfo {
     private File _file;
     private int _currentVersion = 1;
     private ClientInfo _owner;
-    private SecretKeySpec _fileKey;
     private ArrayList<ClientInfo> _editors = new ArrayList<>();
+    private byte[] _latestChecksum;
 
-    public FileInfo(File file, ClientInfo owner, SecretKeySpec fileKey) {
+    public FileInfo(File file, ClientInfo owner, byte[] latestChecksum) {
         _file = file;
         _owner = owner;
-        _fileKey = fileKey;
+        _latestChecksum = latestChecksum;
     }
 
     public ClientInfo getOwner() {
@@ -25,12 +25,12 @@ public class FileInfo {
         return _currentVersion;
     }
 
-    public SecretKeySpec getFileKey() {
-        return _fileKey;
-    }
-
     public File getFile() {
         return _file;
+    }
+
+    public byte[] getLatestChecksum() {
+        return _latestChecksum;
     }
 
     public void updateVersion() {
