@@ -3,7 +3,6 @@ package Client;
 import Client.exceptions.InvalidPathException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.google.gson.internal.bind.DateTypeAdapter;
 
 import javax.crypto.*;
 import javax.net.ssl.*;
@@ -12,13 +11,11 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.*;
-import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Scanner;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class Client {
@@ -100,7 +97,7 @@ public class Client {
 
         byte[] fileBytes = Files.readAllBytes(filePath);
 
-        request.addProperty("file_checksum", Base64.getEncoder().encodeToString(computeFileChecksum(fileBytes)));
+        request.addProperty("file_checksum", Base64.getEncoder().encodeToString(computeFileSignature(fileBytes)));
 
         // Encrypt with generated key
         byte[] cipheredFile = cipherFile(fileBytes, secretKey);
@@ -132,11 +129,11 @@ public class Client {
 
     }
 
-    private byte[] computeFileChecksum(byte[] fileBytes) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    private byte[] computeFileSignature(byte[] fileBytes) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         // Compute checksum of this File and cipher with Public Key
         byte[] checksum = HashBytes(fileBytes);
 
-        // Cipher with client's Public Key
+        // Cipher with client's Private Key
         PrivateKey clientPrivateKey = getClientPrivateKey();
         return cipherHash(checksum, clientPrivateKey);
     }
