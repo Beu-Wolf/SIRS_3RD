@@ -8,7 +8,6 @@ import javax.crypto.*;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.FileSystems;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.*;
 import java.security.cert.CertificateException;
@@ -16,7 +15,6 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Scanner;
 import java.util.regex.Pattern;
-import java.util.stream.StreamSupport;
 
 public class Client {
 
@@ -79,8 +77,9 @@ public class Client {
     public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException {
 
         Path filePath = FileSystems.getDefault().getPath("files", path);
+        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
 
-        if(Arrays.asList(StreamSupport.stream(filePath.spliterator(), false).map(Path::toString).toArray(String[]::new)).contains("sharedFiles")) {
+        if(relativeFilePath.startsWith("sharedFiles")) {
             throw new InvalidPathException("Can't create a file in the sharedFilesFolder");
         }
 
@@ -95,29 +94,33 @@ public class Client {
         request.addProperty("username", _username);
         request.addProperty("path", path);
 
-        byte[] fileBytes = Files.readAllBytes(filePath);
 
-        request.addProperty("file_checksum", Base64.getEncoder().encodeToString(computeFileSignature(fileBytes)));
-
-        // Encrypt with generated key
-        byte[] cipheredFile = cipherFile(fileBytes, secretKey);
-
-        // TODO: Change this to send file in little chunks
-        request.addProperty("filesize", cipheredFile.length);
+        // Compute signature of file
+        FileInputStream fis = new FileInputStream(String.valueOf(filePath));
+        request.addProperty("signature", Base64.getEncoder().encodeToString(computeFileSignature(fis)));
+        fis.close();
 
         System.out.println(request.toString());
         os.writeObject(request.toString());
 
-        // Send file 8k bytes at a time
-        int chunk = 8*1024;
-        int fileStart = 0;
-        while(fileStart < cipheredFile.length) {
-            int end = Math.min(cipheredFile.length, fileStart + chunk);
-            os.write(Arrays.copyOfRange(cipheredFile, fileStart, end));
-            os.flush();
-            fileStart += chunk;
-        }
+        Cipher fileCipher = getFileCipher(secretKey);
 
+        // Send file 8k bytes at a time
+        fis = new FileInputStream(String.valueOf(filePath));
+        CipherInputStream cin  = new CipherInputStream(fis, fileCipher);
+
+        byte[] fileChunk = new byte[8*1024];
+        int bytesRead;
+
+        while((bytesRead = cin.read(fileChunk)) >= 0) {
+            os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+            os.flush();
+        }
+        os.writeObject(Base64.getDecoder().decode("FileDone"));
+        os.flush();
+        cin.close();
+
+        
         String line;
         System.out.println("Waiting");
         line = (String) is.readObject();
@@ -129,26 +132,29 @@ public class Client {
 
     }
 
-    private byte[] computeFileSignature(byte[] fileBytes) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
-        // Compute checksum of this File and cipher with Public Key
-        byte[] checksum = HashBytes(fileBytes);
+    private byte[] computeFileSignature(FileInputStream fis) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        // Compute checksum of this File and cipher with Private Key
+        MessageDigest messageDigest = getMessageDigest();
+        byte[] fileChunk = new byte[8*1024];
+        int count = 0;
+        while ((count = fis.read(fileChunk)) != -1) {
+            messageDigest.update(fileChunk, 0, count);
+        }
 
         // Cipher with client's Private Key
         PrivateKey clientPrivateKey = getClientPrivateKey();
-        return cipherHash(checksum, clientPrivateKey);
+        return cipherHash(messageDigest.digest(), clientPrivateKey);
     }
 
-    private byte[] HashBytes(byte[] cipheredBytes) throws NoSuchAlgorithmException {
+    private MessageDigest getMessageDigest() throws NoSuchAlgorithmException {
         final String DIGEST_ALGO = "SHA-256";
-        MessageDigest messageDigest = MessageDigest.getInstance(DIGEST_ALGO);
-        messageDigest.update(cipheredBytes);
-        return messageDigest.digest();
+        return MessageDigest.getInstance(DIGEST_ALGO);
     }
 
-    private byte[] cipherFile(byte[] fileBytes, SecretKey symKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    private Cipher getFileCipher(SecretKey symKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
         cipher.init(Cipher.ENCRYPT_MODE, symKey);
-       return cipher.doFinal(fileBytes);
+       return cipher;
     }
 
     private byte[] cipherHash(byte[] bytes, PrivateKey clientPrivKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
