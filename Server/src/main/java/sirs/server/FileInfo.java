@@ -1,6 +1,5 @@
 package sirs.server;
 
-import javax.crypto.spec.SecretKeySpec;
 import java.io.File;
 import java.util.ArrayList;
 
@@ -9,12 +8,12 @@ public class FileInfo {
     private int _currentVersion = 1;
     private ClientInfo _owner;
     private ArrayList<ClientInfo> _editors = new ArrayList<>();
-    private byte[] _latestChecksum;
+    private byte[] _signature;
 
-    public FileInfo(File file, ClientInfo owner, byte[] latestChecksum) {
+    public FileInfo(File file, ClientInfo owner, byte[] signature) {
         _file = file;
         _owner = owner;
-        _latestChecksum = latestChecksum;
+        _signature = signature;
     }
 
     public ClientInfo getOwner() {
@@ -29,8 +28,8 @@ public class FileInfo {
         return _file;
     }
 
-    public byte[] getLatestChecksum() {
-        return _latestChecksum;
+    public byte[] getLatestSignature() {
+        return _signature;
     }
 
     public void updateVersion() {

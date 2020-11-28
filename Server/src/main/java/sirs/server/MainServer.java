@@ -171,7 +171,7 @@ class ServerThread extends Thread {
     public void createNewFile(String path, ClientInfo owner, byte[] checksum, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
         //Concatenate username with file path
-        Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, owner.getUsername(), path);
+        Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, owner.getUsername(), path).normalize();
 
         Files.createDirectories(newFilePath.getParent());
 
