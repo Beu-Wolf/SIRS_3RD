@@ -139,24 +139,19 @@ class ServerThread extends Thread {
                 throw new NoClientException(username);
             }
 
-            String fileChecksum = request.get("file_checksum").getAsString();
+            String fileChecksum = request.get("signature").getAsString();
             byte[] checksum = Base64.getDecoder().decode(fileChecksum);
 
             // TODO: Change to receive small number of bytes each time
 
-            int fileSize = request.get("filesize").getAsInt();
+            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, is);
 
-            ByteArrayOutputStream byteArray = receiveFileFromSocket(is, fileSize);
-
-            byte[] content = byteArray.toByteArray();
-
-            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, content);
             // Send file to backup
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException e) {
+        } catch (IOException | ClassNotFoundException | NoClientException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -164,7 +159,7 @@ class ServerThread extends Thread {
         }
     }
 
-    public void createNewFile(String path, ClientInfo owner, byte[] checksum, byte[] fileContent) throws IOException {
+    public void createNewFile(String path, ClientInfo owner, byte[] checksum, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
         //Concatenate username with file path
         Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, owner.getUsername(), path);
@@ -172,15 +167,20 @@ class ServerThread extends Thread {
         Files.createDirectories(newFilePath.getParent());
 
         File file = new File(String.valueOf(newFilePath));
+        file.createNewFile();
+        new FileOutputStream(file).close(); // Clean file
 
-        Files.write(file.toPath(), fileContent);
+        byte[] fileChunk;
+        boolean fileFinish = false;
+        while(!fileFinish) {
+            fileChunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
+                fileFinish = true;
+            } else {
+                Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
+            }
+        }
 
-        /*byte[] contentBytes = Base64.getDecoder().decode(initialContent);
-        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-        cipher.init(Cipher.DECRYPT_MODE, fileKey);
-        byte[] decipherContent = cipher.doFinal(contentBytes);
-
-        String content = new String(decipherContent, 0, decipherContent.length);*/
         FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
         _files.add(fi);
@@ -213,17 +213,14 @@ class ServerThread extends Thread {
                 throw new InvalidEditorException(username, filePath.toString());
             }
 
-            String fileChecksum = request.get("file_checksum").getAsString();
+            String fileChecksum = request.get("signature").getAsString();
             byte[] checksum = Base64.getDecoder().decode(fileChecksum);
 
             // TODO: Change to receive small number of bytes each time
 
-            int fileSize = request.get("filesize").getAsInt();
 
-            ByteArrayOutputStream byteArray = receiveFileFromSocket(is, fileSize);
-
-            byte[] content = byteArray.toByteArray();
-            editFile(fi, checksum, content);
+            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, is);
+            editFile(fi, checksum);
 
             // Send to backup
             // Send file to backup
@@ -231,7 +228,7 @@ class ServerThread extends Thread {
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -241,8 +238,7 @@ class ServerThread extends Thread {
 
 
 
-    public void editFile(FileInfo fi, byte[] checksum, byte[] content) throws IOException {
-        Files.write(fi.getFile().toPath(), content);
+    public void editFile(FileInfo fi, byte[] checksum) {
         fi.setLatestChecksum(checksum);
         fi.updateVersion();
     }
@@ -290,26 +286,23 @@ class ServerThread extends Thread {
         return cipher.doFinal(bytes);
     }
 
-    private byte[] hashBytes(byte[] cipheredBytes) throws NoSuchAlgorithmException {
+
+    private MessageDigest getMessageDigest() throws NoSuchAlgorithmException {
         final String DIGEST_ALGO = "SHA-256";
-        MessageDigest messageDigest = MessageDigest.getInstance(DIGEST_ALGO);
-        messageDigest.update(cipheredBytes);
+        return MessageDigest.getInstance(DIGEST_ALGO);
+    }
+
+    private byte[] computeFileSignature(FileInputStream fis) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        // Compute checksum of this File and cipher with Private Key
+        MessageDigest messageDigest = getMessageDigest();
+        byte[] fileChunk = new byte[8*1024];
+        int count;
+        while ((count = fis.read(fileChunk)) != -1) {
+            messageDigest.update(fileChunk, 0, count);
+        }
+
         return messageDigest.digest();
     }
-
-    private ByteArrayOutputStream receiveFileFromSocket(ObjectInputStream is, int fileSize) throws IOException {
-        ByteArrayOutputStream byteArray = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8 * 1024];
-        int readBytes = 0;
-        while (readBytes < fileSize) {
-            int s = is.read(buffer);
-            if (s == -1) break;
-            byteArray.write(buffer, 0, s);
-            readBytes += s;
-        }
-        return byteArray;
-    }
-
 
 }
 
