@@ -7,10 +7,8 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
-import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
@@ -103,7 +101,7 @@ class ServerThread extends Thread {
             PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
             // verify if public key is signed by the trusted CA
-            Certificate ca = getCACert();
+            Certificate ca = getClientCACert();
             ca.verify(publicKey);
 
             String username = request.get("username").getAsString();
@@ -227,10 +225,10 @@ class ServerThread extends Thread {
     }
 
 
-    private Certificate getCACert() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException {
+    private Certificate getClientCACert() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException {
         KeyStore ksTrust = KeyStore.getInstance("PKCS12");
         ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
-        return ksTrust.getCertificate("caroot");
+        return ksTrust.getCertificate("client-ca");
     }
 
     private byte[] decipherHash(byte[] bytes, PublicKey clientPubKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
