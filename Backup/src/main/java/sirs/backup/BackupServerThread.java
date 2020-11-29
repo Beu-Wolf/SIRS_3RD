@@ -22,39 +22,28 @@ public class BackupServerThread extends Thread {
             ObjectInputStream is = new ObjectInputStream(_socket.getInputStream());
             ObjectOutputStream os = new ObjectOutputStream(_socket.getOutputStream());
 
-            String line;
-            boolean exit = false;
+            String line = (String) is.readObject();
+            System.out.println("read: " + line);
 
-            while(!exit) {
-                line = (String) is.readObject();
-                System.out.println("read: " + line);
-                exit = true;
-                if (exit) continue; /* TODO REMOVE */
+            JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
 
-                JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
-
-                JsonObject reply = null;
-                String operation = operationJson.get("operation").getAsString();
-                switch (operation) {
-                    case "BackupFile":
-                        reply = parseBackupFile(operationJson, is);
-                        break;
-                    case "RestoreFile":
-                        reply = parseRestoreFile(operationJson, os);
-                        break;
-                    case "Exit":
-                        (reply = JsonParser.parseString("{}").getAsJsonObject()).addProperty("response", "OK");
-                        exit = true;
-                        break;
-                    default:
-                        throw new IOException("Invalid operation");
-                }
-                if (!exit) {
-                    assert reply != null;
-                    System.out.println("Sending: " + reply);
-                    os.writeObject(reply.toString());
-                }
+            JsonObject reply = null;
+            String operation = operationJson.get("operation").getAsString();
+            switch (operation) {
+                case "BackupFile":
+                    reply = parseBackupFile(operationJson, is);
+                    break;
+                case "RestoreFile":
+                    reply = parseRestoreFile(operationJson, os);
+                    break;
+                default:
+                    throw new IOException("Invalid operation");
             }
+            if (reply != null) {
+                System.out.println("Sending: " + reply);
+                os.writeObject(reply.toString());
+            }
+
             is.close();
             os.close();
             _socket.close();
