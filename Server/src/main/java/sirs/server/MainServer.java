@@ -227,7 +227,7 @@ class ServerThread extends Thread {
 
     private Certificate getClientCACert() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException {
         KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-        ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
+        ksTrust.load(new FileInputStream("keys/server_client.truststore.pk12"), _password);
         return ksTrust.getCertificate("client-ca");
     }
 
@@ -303,7 +303,7 @@ public class MainServer {
             kmf.init(ks, _password);
 
             KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-            ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
+            ksTrust.load(new FileInputStream("keys/server_client.truststore.pk12"), _password);
             TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
             tmf.init(ksTrust);
 
