@@ -244,7 +244,36 @@ class ServerThread extends Thread {
         return messageDigest.digest();
     }
 
+    private SSLSocket connectToBackupServer() {
+        try {
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+            KeyStore ks = KeyStore.getInstance("PKCS12");
 
+            ks.load(new FileInputStream("keys/server.keystore.pk12"), _password);
+            kmf.init(ks, _password);
+
+
+            KeyStore ksTrust = KeyStore.getInstance("PKCS12");
+            ksTrust.load(new FileInputStream("keys/server_backup.truststore.pk12"), _password);
+            TrustManagerFactory tm = TrustManagerFactory.getInstance("SunX509");
+            tm.init(ksTrust);
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(kmf.getKeyManagers(), tm.getTrustManagers(), null);
+
+            SSLSocket s = (SSLSocket) sslContext.getSocketFactory().createSocket("localhost", 20000);
+            String[] protocols = new String[]{"TLSv1.3"};
+            String[] cipherSuites = new String[]{"TLS_AES_128_GCM_SHA256"};
+
+            s.setEnabledProtocols(protocols);
+            s.setEnabledCipherSuites(cipherSuites);
+
+            s.startHandshake();
+            return s;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }
 
 
