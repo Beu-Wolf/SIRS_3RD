@@ -17,12 +17,15 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import org.mindrot.jbcrypt.BCrypt;
+
 
 
 class ServerThread extends Thread {
 
     private ConcurrentHashMap<String, ClientInfo> _clients;
     private List<FileInfo> _files;
+    private boolean _online = false;
 
     private char[] _password;
     private SSLSocket _socket;
@@ -35,7 +38,7 @@ class ServerThread extends Thread {
         _files = files;
         _password = password;
         _socket = socket;
-        _clients.put("testUser", new ClientInfo(null, null, "testUser"));
+        _clients.put("testUser", new ClientInfo(null, null, "testUser", null, null));
     }
 
     @Override
@@ -58,7 +61,10 @@ class ServerThread extends Thread {
                 String operation = operationJson.get("operation").getAsString();
                 switch (operation) {
                     case "RegisterUser":
-                        reply = parseReceiveUserKey(operationJson);
+                        reply = parseRegister(operationJson);
+                        break;
+                    case "LoginUser":
+                        reply = parseLogin(operationJson);
                         break;
                     case "CreateFile":
                         reply = parseCreateFile(operationJson, is);
@@ -91,7 +97,47 @@ class ServerThread extends Thread {
 
     }
 
-    private JsonObject parseReceiveUserKey(JsonObject request) {
+    public boolean verifyCredentials(String username, String email) {
+
+        if (_clients.containsKey(username)) {
+            if (_clients.get(username).getEmail().equals(email)) { return true; }
+            return false;
+        }
+        return false;
+    }
+
+    public boolean matchPasswords(String username, String pw) {
+
+        if (_clients.containsKey(username)) {
+            return BCrypt.checkpw(_clients.get(username).getPassword(), pw);
+        }
+        return false;
+    }
+
+    private JsonObject parseLogin(JsonObject request) {
+
+        JsonObject reply;
+
+        String username = request.get("username").getAsString();
+        String password = request.get("password").getAsString();
+
+        if (!matchPasswords(username, password)) {
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK: Wrong Password.");
+        }
+        else {
+            login(username);
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "OK");
+        }
+        return reply;
+    }
+
+    private void login(String username) {
+        _online = true;
+    }
+
+    private JsonObject parseRegister(JsonObject request) {
 
         JsonObject reply;
         try {
@@ -105,10 +151,22 @@ class ServerThread extends Thread {
             ca.verify(publicKey);
 
             String username = request.get("username").getAsString();
+            String email = request.get("email").getAsString();
+            String password = request.get("password").getAsString();
+
+            String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
+
             String url = request.get("url").getAsString();
-            receiveUserKey(url, publicKey, username);
-            reply = JsonParser.parseString("{}").getAsJsonObject();
-            reply.addProperty("response", "OK");
+
+            if (!verifyCredentials(username, email)) {
+                reply = JsonParser.parseString("{}").getAsJsonObject();
+                reply.addProperty("response", "NOK: Username or Email already in use.");
+            }
+            else {
+                registerClient(url, publicKey, username, email, hashed);
+                reply = JsonParser.parseString("{}").getAsJsonObject();
+                reply.addProperty("response", "OK");
+            }
             return reply;
         } catch (NoSuchAlgorithmException | InvalidKeySpecException |
                 IOException | CertificateException | InvalidKeyException |
@@ -119,13 +177,13 @@ class ServerThread extends Thread {
         }
     }
 
-
-    public void receiveUserKey(String url, PublicKey publicKey, String username) { // Can also receive the message here and parse in this function
-        _clients.put(username, new ClientInfo(url, publicKey, username));
+    public void registerClient(String url, PublicKey publicKey, String username, String email, String password) {
+        _clients.put(username, new ClientInfo(url, publicKey, username, email, password));
+        System.out.println(_clients);
     }
 
 
-    private JsonObject parseCreateFile(JsonObject request, ObjectInputStream is) {
+    private JsonObject parseCreateFile(JsonObject request, ObjectInputStream is) { // Can also receive the message here and parse in this function
 
         JsonObject reply;
         try {

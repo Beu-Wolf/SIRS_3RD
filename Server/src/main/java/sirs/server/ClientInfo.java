@@ -6,11 +6,15 @@ public class ClientInfo {
     private String _url;
     private PublicKey _publicKey;
     private String _username;
+    private String _email;
+    private String _password;
 
-    public ClientInfo(String url, PublicKey publicKey, String username) {
+    public ClientInfo(String url, PublicKey publicKey, String username, String email, String password) {
         _url = url;
         _publicKey = publicKey;
         _username = username;
+        _email = email;
+        _password = password;
     }
 
     public PublicKey getPublicKey() {
@@ -24,4 +28,10 @@ public class ClientInfo {
     public String getUsername() {
         return _username;
     }
+
+    public String getEmail() {
+        return _email;
+    }
+
+    public String getPassword() { return _password; }
 }
