@@ -10,6 +10,7 @@
     <modules>
         <module>Server</module>
         <module>Client</module>
+        <module>Backup</module>
     </modules>
     <packaging>pom</packaging>
     <name>${project.artifactId}</name>
