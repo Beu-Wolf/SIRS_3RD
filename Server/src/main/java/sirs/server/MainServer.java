@@ -10,10 +10,10 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
-import javax.crypto.spec.SecretKeySpec;
+import javax.net.SocketFactory;
 import javax.net.ssl.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.net.Socket;
 import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
@@ -32,15 +32,18 @@ class ServerThread extends Thread {
     private char[] _password;
     private SSLSocket _socket;
 
+    private SSLSocketFactory _backupSocketFactory;
+
     private String filesRootFolder = "files";
 
 
-    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, List<FileInfo> files, char[] password, SSLSocket socket) {
+    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, List<FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
         _clients = clients;
         _files = files;
         _password = password;
         _socket = socket;
         _clients.put("testUser", new ClientInfo(null, null, "testUser"));
+        _backupSocketFactory = backupSocketFactory;
     }
 
     @Override
@@ -106,7 +109,7 @@ class ServerThread extends Thread {
             PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
             // verify if public key is signed by the trusted CA
-            Certificate ca = getCACert();
+            Certificate ca = getClientCACert();
             ca.verify(publicKey);
 
             String username = request.get("username").getAsString();
@@ -274,10 +277,10 @@ class ServerThread extends Thread {
     }
 
 
-    private Certificate getCACert() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException {
+    private Certificate getClientCACert() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException {
         KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-        ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
-        return ksTrust.getCertificate("caroot");
+        ksTrust.load(new FileInputStream("keys/server_client.truststore.pk12"), _password);
+        return ksTrust.getCertificate("client-ca");
     }
 
     private byte[] decipherHash(byte[] bytes, PublicKey clientPubKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
@@ -304,6 +307,21 @@ class ServerThread extends Thread {
         return messageDigest.digest();
     }
 
+    private SSLSocket connectToBackupServer() {
+        try {
+            SSLSocket s = (SSLSocket) _backupSocketFactory.createSocket("localhost", 20000);
+            String[] protocols = new String[]{"TLSv1.3"};
+            String[] cipherSuites = new String[]{"TLS_AES_128_GCM_SHA256"};
+
+            s.setEnabledProtocols(protocols);
+            s.setEnabledCipherSuites(cipherSuites);
+            s.startHandshake();
+            return s;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }
 
 
@@ -328,6 +346,7 @@ public class MainServer {
     
     public void start() {
         SSLServerSocketFactory ssl = getServerSocketFactory();
+        SSLSocketFactory backupSocketFactory = getBackupSocketFactory();
 
         assert ssl != null;
         try(SSLServerSocket socket = (SSLServerSocket) ssl.createServerSocket(_port)) {
@@ -341,7 +360,7 @@ public class MainServer {
 
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
-                ServerThread st = new ServerThread(_clients, _files, _password, s);
+                ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory);
                 st.start();
             }
         } catch (IOException e) {
@@ -362,7 +381,7 @@ public class MainServer {
             kmf.init(ks, _password);
 
             KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-            ksTrust.load(new FileInputStream("keys/server.truststore.pk12"), _password);
+            ksTrust.load(new FileInputStream("keys/server_client.truststore.pk12"), _password);
             TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
             tmf.init(ksTrust);
 
@@ -375,5 +394,25 @@ public class MainServer {
         return null;
     }
 
+    private SSLSocketFactory getBackupSocketFactory() {
+        try {
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+            KeyStore ks = KeyStore.getInstance("PKCS12");
 
+            ks.load(new FileInputStream("keys/server.keystore.pk12"), _password);
+            kmf.init(ks, _password);
+
+            KeyStore ksTrust = KeyStore.getInstance("PKCS12");
+            ksTrust.load(new FileInputStream("keys/server_backup.truststore.pk12"), _password);
+            TrustManagerFactory tm = TrustManagerFactory.getInstance("SunX509");
+            tm.init(ksTrust);
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(kmf.getKeyManagers(), tm.getTrustManagers(), null);
+
+            return sslContext.getSocketFactory();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }

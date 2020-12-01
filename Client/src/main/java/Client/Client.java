@@ -279,7 +279,7 @@ public class Client {
     private PrivateKey getClientPrivateKey() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
-        return (PrivateKey) ks.getKey("localhost", _keyStorePass);
+        return (PrivateKey) ks.getKey("client", _keyStorePass);
     }
 
 }
