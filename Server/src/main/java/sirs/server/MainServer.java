@@ -2,6 +2,7 @@ package sirs.server;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import sirs.server.exceptions.BackupException;
 import sirs.server.exceptions.InvalidEditorException;
 import sirs.server.exceptions.MissingFileException;
 import sirs.server.exceptions.NoClientException;
@@ -10,10 +11,8 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
-import javax.net.SocketFactory;
 import javax.net.ssl.*;
 import java.io.*;
-import java.net.Socket;
 import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
@@ -75,6 +74,7 @@ class ServerThread extends Thread {
                         break;
                     case "EditFile":
                         reply = parseEditFile(operationJson, is);
+                        break;
                     case "GetFile":
                         break;
                     case "Exit":
@@ -142,19 +142,20 @@ class ServerThread extends Thread {
                 throw new NoClientException(username);
             }
 
-            String fileChecksum = request.get("signature").getAsString();
-            byte[] checksum = Base64.getDecoder().decode(fileChecksum);
+            String fileSignature = request.get("signature").getAsString();
+            byte[] signature = Base64.getDecoder().decode(fileSignature);
 
-            // TODO: Change to receive small number of bytes each time
+            // TODO: After login is done, verify this file signature
 
-            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, is);
+            FileInfo createdFile = createNewFile(request.get("path").getAsString(), _clients.get(username), signature, is);
 
             // Send file to backup
+            sendFileToBackup(request, username, createdFile, fileSignature);
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | ClassNotFoundException | NoClientException e) {
+        } catch (IOException | ClassNotFoundException | NoClientException | BackupException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -162,7 +163,7 @@ class ServerThread extends Thread {
         }
     }
 
-    public void createNewFile(String path, ClientInfo owner, byte[] checksum, ObjectInputStream is) throws IOException, ClassNotFoundException {
+    public FileInfo createNewFile(String path, ClientInfo owner, byte[] checksum, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
         //Concatenate username with file path
         Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, owner.getUsername(), path).normalize();
@@ -178,7 +179,7 @@ class ServerThread extends Thread {
         FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
         _files.add(fi);
-
+        return fi;
     }
 
     public JsonObject parseEditFile(JsonObject request, ObjectInputStream is) {
@@ -207,28 +208,66 @@ class ServerThread extends Thread {
                 throw new InvalidEditorException(username, filePath.toString());
             }
 
-            String fileChecksum = request.get("signature").getAsString();
-            byte[] checksum = Base64.getDecoder().decode(fileChecksum);
+            String fileSignature = request.get("signature").getAsString();
+            byte[] signature = Base64.getDecoder().decode(fileSignature);
 
-            // TODO: Change to receive small number of bytes each time
+            // TODO: After login is done, verify this file signature
 
             // Clean File
             new FileOutputStream(fi.getFile()).close();
             receiveFileFromSocket(fi.getFile(), is);
-            editFile(fi, checksum);
+            editFile(fi, signature);
 
             // Send to backup
-            // Send file to backup
+            sendFileToBackup(request, username, fi, fileSignature);
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | BackupException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
             return reply;
         }
+    }
+
+    private void sendFileToBackup(JsonObject request, String username, FileInfo fi, String fileSignature) throws IOException, ClassNotFoundException, BackupException {
+
+        SSLSocket connectionToBackup = connectToBackupServer();
+        assert connectionToBackup != null;
+
+        ObjectOutputStream bos = new ObjectOutputStream(connectionToBackup.getOutputStream());
+        ObjectInputStream bis = new ObjectInputStream(connectionToBackup.getInputStream());
+
+        JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
+        backupRequest.addProperty("operation", "BackupFile");
+        backupRequest.addProperty("lastEditor", username);
+        backupRequest.addProperty("version", fi.getCurrentVersion());
+        backupRequest.addProperty("signature", fileSignature);
+
+        Path backupFilePath = Paths.get(username, request.get("path").getAsString());
+        System.out.println("Backup Path: " + backupFilePath);
+        backupRequest.addProperty("path", backupFilePath.toString());
+
+        System.out.println(backupRequest.toString());
+        bos.writeObject(backupRequest.toString());
+
+        sendFile(fi, bos);
+
+        System.out.println("Waiting");
+        String line = (String) bis.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject backupReply = JsonParser.parseString(line).getAsJsonObject();
+        System.out.println("Result: " + backupReply.get("response").getAsString());
+
+        if (!backupReply.get("response").getAsString().equals("OK")) {
+            throw new BackupException("Could not store file in server");
+        }
+        bos.close();
+        bis.close();
     }
 
     public void receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
@@ -277,8 +316,19 @@ class ServerThread extends Thread {
         // Send file
     }
 
-    public void sendFileToBackup(FileInfo fo) {
-        // Send fo to backup;
+    public void sendFile(FileInfo fo, ObjectOutputStream os) throws IOException {
+        try (FileInputStream fis = new FileInputStream(fo.getFile())) {
+
+            byte[] fileChunk = new byte[8 * 1024];
+            int bytesRead;
+
+            while ((bytesRead = fis.read(fileChunk)) >= 0) {
+                os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+                os.flush();
+            }
+            os.writeObject(Base64.getDecoder().decode("FileDone"));
+            os.flush();
+        }
     }
 
 

@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.security.*;
 import java.security.cert.CertificateException;
+import java.util.ArrayList;
 
 public class BackupServer {
 
@@ -30,9 +31,11 @@ public class BackupServer {
 
             System.out.println("Running at " + _host + ":" + _port);
 
+            ArrayList<BackupFileInfo> files = new ArrayList<>();
+
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
-                BackupServerThread st = new BackupServerThread(s);
+                BackupServerThread st = new BackupServerThread(files, s);
                 st.start();
             }
         } catch (IOException e) {
