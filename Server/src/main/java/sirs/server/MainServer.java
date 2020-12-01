@@ -173,16 +173,7 @@ class ServerThread extends Thread {
         file.createNewFile();
         new FileOutputStream(file).close(); // Clean file
 
-        byte[] fileChunk;
-        boolean fileFinish = false;
-        while(!fileFinish) {
-            fileChunk = (byte[]) is.readObject();
-            if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
-                fileFinish = true;
-            } else {
-                Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
-            }
-        }
+        receiveFileFromSocket(file, is);
 
         FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
@@ -200,9 +191,9 @@ class ServerThread extends Thread {
 
             Path filePath;
             if (request.get("ownerEdit").getAsBoolean()) {
-                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, username, request.get("path").getAsString());
+                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, username, request.get("path").getAsString()).normalize();
             } else {
-                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString());
+                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString()).normalize();
             }
 
             // Verify if file exists
@@ -221,8 +212,9 @@ class ServerThread extends Thread {
 
             // TODO: Change to receive small number of bytes each time
 
-
-            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, is);
+            // Clean File
+            new FileOutputStream(fi.getFile()).close();
+            receiveFileFromSocket(fi.getFile(), is);
             editFile(fi, checksum);
 
             // Send to backup
@@ -236,6 +228,19 @@ class ServerThread extends Thread {
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
             return reply;
+        }
+    }
+
+    public void receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
+        byte[] fileChunk;
+        boolean fileFinish = false;
+        while(!fileFinish) {
+            fileChunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
+                fileFinish = true;
+            } else {
+                Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
+            }
         }
     }
 
