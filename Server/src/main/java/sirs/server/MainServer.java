@@ -156,6 +156,9 @@ class ServerThread extends Thread {
 
             String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
 
+            System.out.println(hashed);
+            System.out.println(_clients.get(username).getPassword());
+
             String url = request.get("url").getAsString();
 
             if (!verifyCredentials(username, email)) {
