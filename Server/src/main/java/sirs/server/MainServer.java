@@ -10,10 +10,8 @@ import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
-import javax.net.SocketFactory;
 import javax.net.ssl.*;
 import java.io.*;
-import java.net.Socket;
 import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
@@ -304,7 +302,7 @@ class ServerThread extends Thread {
     public void editFile(Path tempFilePath, FileInfo fi, byte[] signature) throws IOException {
         Files.copy(tempFilePath, fi.getFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
         Files.delete(tempFilePath);
-        fi.setLatestChecksum(signature);
+        fi.setLatestSignature(signature);
         fi.updateVersion();
     }
 

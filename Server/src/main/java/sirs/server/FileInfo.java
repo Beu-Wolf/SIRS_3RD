@@ -32,7 +32,7 @@ public class FileInfo {
         return _signature;
     }
 
-    public void setLatestChecksum(byte[] latestSignature) {
+    public void setLatestSignature(byte[] latestSignature) {
         _signature = latestSignature;
     }
 
