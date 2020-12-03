@@ -77,6 +77,9 @@ class ServerThread extends Thread {
                         break;
                     case "GetFile":
                         break;
+                    case "RecoverFile":
+                        reply = parseRecoverFile(operationJson, os);
+                        break;
                     case "Exit":
                         (reply = JsonParser.parseString("{}").getAsJsonObject()).addProperty("response", "OK");
                         exit = true;
@@ -232,6 +235,11 @@ class ServerThread extends Thread {
         }
     }
 
+    public void editFile(FileInfo fi, byte[] checksum) {
+        fi.setLatestChecksum(checksum);
+        fi.updateVersion();
+    }
+
     private void sendFileToBackup(JsonObject request, String username, FileInfo fi, String fileSignature) throws IOException, ClassNotFoundException, BackupException {
 
         SSLSocket connectionToBackup = connectToBackupServer();
@@ -270,6 +278,106 @@ class ServerThread extends Thread {
         bis.close();
     }
 
+    public JsonObject parseRecoverFile(JsonObject request, ObjectOutputStream os) {
+        JsonObject reply;
+        try {
+            String username = request.get("username").getAsString();
+
+            // Verify if has acess to file
+            if(!_clients.containsKey(username)) {
+                throw new NoClientException(username);
+            }
+
+            // compute wanted path
+            Path filePath;
+            Path backupFilePath;
+            if (request.get("ownedFile").getAsBoolean()) {
+                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, username, request.get("path").getAsString()).normalize();
+                backupFilePath = Paths.get(username, request.get("path").getAsString());
+            } else {
+                filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString()).normalize();
+                backupFilePath = Paths.get(request.get("path").getAsString());
+            }
+            System.out.println("filePath: " + backupFilePath);
+
+            // Verify if file exists
+            FileInfo fi = _files.stream().filter(x -> x.getFile().toPath().equals(filePath)).findFirst().orElse(null);
+            if(fi == null) {
+                throw new MissingFileException(filePath.toString());
+            }
+
+            // Verify permission to edit file
+            if (!fi.containsEditor(_clients.get(username))) {
+                throw new InvalidEditorException(username, filePath.toString());
+            }
+
+            // Clean File
+            new FileOutputStream(fi.getFile()).close();
+
+            // get file from backup
+            JsonObject backupReply = receiveFileFromBackup(backupFilePath, fi);
+
+            if (!backupReply.get("response").getAsString().equals("OK")) {
+                // Someting went wrong
+                throw new BackupException("Could not get file from backup");
+            }
+
+            // TODO: Verify signature
+
+            // Send file to client
+            JsonObject confirmation = JsonParser.parseString("{}").getAsJsonObject();
+            confirmation.addProperty("response",  "SendingFile");
+
+            os.writeObject(confirmation.toString());
+            sendFile(fi, os);
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response" , "OK");
+            return reply;
+
+        } catch (NoClientException | MissingFileException | InvalidEditorException | IOException | ClassNotFoundException | BackupException e) {
+            e.printStackTrace();
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK: " + e.getMessage());
+            return reply;
+        }
+    }
+
+    private JsonObject receiveFileFromBackup(Path filePath, FileInfo fi) throws IOException, ClassNotFoundException {
+        SSLSocket connectionToBackup = connectToBackupServer();
+        assert connectionToBackup != null;
+
+        ObjectOutputStream bos = new ObjectOutputStream(connectionToBackup.getOutputStream());
+        ObjectInputStream bis = new ObjectInputStream(connectionToBackup.getInputStream());
+
+        JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
+        backupRequest.addProperty("operation", "RestoreFile");
+        backupRequest.addProperty("path", filePath.toString());
+
+        System.out.println(backupRequest.toString());
+        bos.writeObject(backupRequest.toString());
+
+        String line = (String) bis.readObject();
+        // Read if successfull
+        System.out.println("Received:" + line);
+
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+
+        if (!reply.get("response").getAsString().equals("sendingFile")) {
+            // Someting went wrong, return
+            return reply;
+        }
+
+        receiveFileFromSocket(fi.getFile(), bis);
+
+        line = (String) bis.readObject();
+        // Read if successfull
+        System.out.println("Received:" + line);
+
+        reply = JsonParser.parseString(line).getAsJsonObject();
+
+        return reply;
+    }
+
     public void receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
         byte[] fileChunk;
         boolean fileFinish = false;
@@ -283,12 +391,6 @@ class ServerThread extends Thread {
         }
     }
 
-
-
-    public void editFile(FileInfo fi, byte[] checksum) {
-        fi.setLatestChecksum(checksum);
-        fi.updateVersion();
-    }
 
     public void shareFile(String owner, String clientToShare, String path) {
         FileInfo fileToShare = _files.stream().filter(x -> x.getFile().getPath().equals(path)).findFirst().orElse(null);

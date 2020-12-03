@@ -1,6 +1,7 @@
 package Client;
 
 import Client.exceptions.InvalidPathException;
+import Client.exceptions.RecoverException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -8,7 +9,9 @@ import javax.crypto.*;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.*;
@@ -50,6 +53,8 @@ public class Client {
                         parseCreateFile(scanner, os, is);
                     } else if(Pattern.matches("^edit file$", command)) {
                         parseEditFile(scanner, os, is);
+                    } else if(Pattern.matches("^recover file$", command)) {
+                        parseRecoverFile(scanner, os, is);
                     }
 
 
@@ -181,7 +186,7 @@ public class Client {
 
     private void sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException {
         FileInputStream fis;
-        Cipher fileCipher = getFileCipher(fileSecretKey);
+        Cipher fileCipher = getFileCipher(fileSecretKey, Cipher.ENCRYPT_MODE);
 
         // Send file 8k bytes at a time
         fis = new FileInputStream(String.valueOf(filePath));
@@ -199,6 +204,87 @@ public class Client {
         cin.close();
     }
 
+    private void parseRecoverFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to recover (from the files directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.println("Filename: " + path);
+        try {
+            recoverFile(path, os, is);
+        } catch (InvalidPathException | IOException | ClassNotFoundException | InvalidKeyException | BadPaddingException | NoSuchAlgorithmException | IllegalBlockSizeException | NoSuchPaddingException | RecoverException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void recoverFile(String path, ObjectOutputStream os, ObjectInputStream is) throws InvalidPathException, IOException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException, RecoverException {
+        Path filePath = FileSystems.getDefault().getPath("files", path);
+        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
+
+        if(!_files.containsKey(relativeFilePath)) {
+            throw new InvalidPathException("File does not exist");
+        }
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "RecoverFile");
+        request.addProperty("username", _username);
+
+        if(relativeFilePath.startsWith("sharedFiles")) {
+            relativeFilePath = relativeFilePath.subpath(1, relativeFilePath.getNameCount());
+            request.addProperty("ownedFile", false);
+        } else {
+            request.addProperty("ownedFile", true);
+        }
+
+        request.addProperty("path", relativeFilePath.toString());
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
+
+        JsonObject serverResponse = JsonParser.parseString(line).getAsJsonObject();
+        System.out.println("Response: " + serverResponse.get("response").getAsString());
+
+        if (!serverResponse.get("response").getAsString().equals("SendingFile")) {
+            // someting went wrong
+            throw new RecoverException("Could not recover file");
+        }
+
+
+        // Clean File
+        new FileOutputStream(_files.get(relativeFilePath).getFile()).close();
+        // Read file from socket
+        receiveFileFromSocket(_files.get(relativeFilePath).getFile(), _files.get(relativeFilePath).getFileSymKey(), is);
+
+        line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        System.out.println("Result: " + reply.get("response").getAsString());
+
+    }
+
+    private void receiveFileFromSocket(File file, SecretKey sk, ObjectInputStream is) throws IOException, ClassNotFoundException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException {
+        byte[] fileChunk;
+        boolean fileFinish = false;
+
+        Cipher fileCipher = getFileCipher(sk, Cipher.DECRYPT_MODE);
+
+        FileOutputStream fos = new FileOutputStream(file);
+        CipherOutputStream con = new CipherOutputStream(fos, fileCipher);
+
+        while(!fileFinish) {
+            fileChunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
+                fileFinish = true;
+            } else {
+                con.write(fileChunk);
+            }
+        }
+        con.close();
+    }
 
     private byte[] computeFileSignature(FileInputStream fis) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         // Compute checksum of this File and cipher with Private Key
@@ -219,9 +305,9 @@ public class Client {
         return MessageDigest.getInstance(DIGEST_ALGO);
     }
 
-    private Cipher getFileCipher(SecretKey symKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+    private Cipher getFileCipher(SecretKey symKey, int opmode) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-        cipher.init(Cipher.ENCRYPT_MODE, symKey);
+        cipher.init(opmode, symKey);
        return cipher;
     }
 

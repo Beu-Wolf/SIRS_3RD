@@ -1,6 +1,8 @@
 package sirs.backup;
 
 import java.io.File;
+import java.util.Arrays;
+import java.util.Objects;
 
 public class BackupFileInfo {
 
@@ -30,6 +32,9 @@ public class BackupFileInfo {
         return _editor;
     }
 
+    public String getFileServerPath() {
+        return _fileServerPath;
+    }
 
     public int getVersion() {
         return _version;

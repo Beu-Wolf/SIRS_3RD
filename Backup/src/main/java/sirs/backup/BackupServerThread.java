@@ -2,6 +2,7 @@ package sirs.backup;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import sirs.backup.exceptions.MissingFileException;
 
 import java.io.*;
 import java.net.Socket;
@@ -9,7 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
 
 public class BackupServerThread extends Thread {
@@ -96,7 +99,36 @@ public class BackupServerThread extends Thread {
     }
 
     /* Gives back the file to the requesting server */
-    private JsonObject parseRestoreFile(JsonObject request, ObjectOutputStream os) { return null; }
+    private JsonObject parseRestoreFile(JsonObject request, ObjectOutputStream os) {
+        JsonObject reply;
+        try {
+            // get wanted file (last file)
+            BackupFileInfo latestFile;
+            if (_files.stream().anyMatch(x -> x.getFileServerPath().equals(request.get("path").getAsString()))) {
+                latestFile = _files.stream().filter(x -> x.getFileServerPath().equals(request.get("path").getAsString())).sorted(Comparator.comparingInt(BackupFileInfo::getVersion)).reduce((first, second) -> second).get();
+            } else {
+                throw new MissingFileException("No file to recover!");
+            }
+
+            JsonObject confirmation = JsonParser.parseString("{}").getAsJsonObject();
+            confirmation.addProperty("response",  "sendingFile");
+            confirmation.addProperty("signature", Base64.getEncoder().encodeToString(latestFile.getSignature()));
+            confirmation.addProperty("editor", latestFile.getEditor());
+
+            os.writeObject(confirmation.toString());
+
+            sendFileToSocket(latestFile.getFile(), os);
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "OK");
+            return reply;
+
+        } catch (MissingFileException | IOException e) {
+            e.printStackTrace();
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK" + e.getMessage());
+            return reply;
+        }
+    }
 
     private void receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
         byte[] fileChunk;
@@ -108,6 +140,21 @@ public class BackupServerThread extends Thread {
             } else {
                 Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
             }
+        }
+    }
+
+    private void sendFileToSocket(File file, ObjectOutputStream os) throws IOException {
+        try (FileInputStream fis = new FileInputStream(file)) {
+
+            byte[] fileChunk = new byte[8 * 1024];
+            int bytesRead;
+
+            while ((bytesRead = fis.read(fileChunk)) >= 0) {
+                os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+                os.flush();
+            }
+            os.writeObject(Base64.getDecoder().decode("FileDone"));
+            os.flush();
         }
     }
 
