@@ -69,12 +69,12 @@ class ServerThread extends Thread {
                         reply = parseReceiveUserKey(operationJson);
                         break;
                     case "CreateFile":
-                        reply = parseCreateFile(operationJson, is);
+                        reply = parseCreateFile(operationJson, is, os);
                         break;
                     case "ShareFile":
                         break;
                     case "EditFile":
-                        reply = parseEditFile(operationJson, is);
+                        reply = parseEditFile(operationJson, is, os);
                     case "GetFile":
                         break;
                     case "Exit":
@@ -133,7 +133,7 @@ class ServerThread extends Thread {
     }
 
 
-    private JsonObject parseCreateFile(JsonObject request, ObjectInputStream is) {
+    private JsonObject parseCreateFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
 
         JsonObject reply;
         try {
@@ -142,19 +142,49 @@ class ServerThread extends Thread {
                 throw new NoClientException(username);
             }
 
-            String fileChecksum = request.get("signature").getAsString();
-            byte[] checksum = Base64.getDecoder().decode(fileChecksum);
+            // Compute file path to write to
+            //Concatenate username with file path
+            Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, _clients.get(username).getUsername(), request.get("path").getAsString()).normalize();
 
-            // TODO: Change to receive small number of bytes each time
+            // Path to write temp file in order to check signature
+            Path tempFilePath = Paths.get(newFilePath.getParent().toString(), newFilePath.getFileName() + "_createTemp");
 
-            createNewFile(request.get("path").getAsString(), _clients.get(username), checksum, is);
+            sendAck(os);
+
+            Files.createDirectories(tempFilePath.getParent());
+
+            File file = new File(String.valueOf(tempFilePath));
+            file.createNewFile();
+            new FileOutputStream(file).close(); // Clean file
+
+            byte[] computedSignature = receiveFileFromSocket(file, is);
+            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedSignature));
+
+            sendAck(os);
+
+            // Get client signature
+            String line = (String) is.readObject();
+            System.out.println("read: " + line);
+
+            request = JsonParser.parseString(line).getAsJsonObject();
+
+            String fileSignature = request.get("signature").getAsString();
+            byte[] signature = Base64.getDecoder().decode(fileSignature);
+
+            //signature = decipherHash(signature, _clients.get(username).getPublicKey());
+
+            /*if (!Arrays.equals(computedSignature, signature)) {
+                throw new exception
+            }*/
+
+            createNewFile(tempFilePath, newFilePath, _clients.get(username), signature);
 
             // Send file to backup
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | ClassNotFoundException | NoClientException e) {
+        } catch (IOException | ClassNotFoundException | NoClientException | NoSuchAlgorithmException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -162,18 +192,15 @@ class ServerThread extends Thread {
         }
     }
 
-    public void createNewFile(String path, ClientInfo owner, byte[] checksum, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
-        //Concatenate username with file path
-        Path newFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, owner.getUsername(), path).normalize();
 
-        Files.createDirectories(newFilePath.getParent());
+    public void createNewFile( Path tempPath, Path newPath, ClientInfo owner, byte[] checksum) throws IOException {
 
-        File file = new File(String.valueOf(newFilePath));
-        file.createNewFile();
-        new FileOutputStream(file).close(); // Clean file
+        Files.copy(tempPath, newPath, StandardCopyOption.REPLACE_EXISTING);
 
-        receiveFileFromSocket(file, is);
+        Files.delete(tempPath);
+
+        File file = new File(String.valueOf(newPath));
 
         FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
@@ -181,7 +208,7 @@ class ServerThread extends Thread {
 
     }
 
-    public JsonObject parseEditFile(JsonObject request, ObjectInputStream is) {
+    public JsonObject parseEditFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
         JsonObject reply;
         try {
             String username = request.get("username").getAsString();
@@ -207,23 +234,46 @@ class ServerThread extends Thread {
                 throw new InvalidEditorException(username, filePath.toString());
             }
 
-            String fileChecksum = request.get("signature").getAsString();
-            byte[] checksum = Base64.getDecoder().decode(fileChecksum);
+            sendAck(os);
+
+            // Path to write temp file in order to check signature
+            Path tempFilePath = Paths.get(filePath.getParent().toString(), filePath.getFileName() + "_editTemp");
+
+            File file = new File(String.valueOf(tempFilePath));
+            file.createNewFile();
+            new FileOutputStream(file).close(); // Clean file
+
+            byte[] computedSignature = receiveFileFromSocket(file, is);
+            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedSignature));
+
+            sendAck(os);
+
+            // Get client signature
+            String line = (String) is.readObject();
+            System.out.println("read: " + line);
+
+            request = JsonParser.parseString(line).getAsJsonObject();
+
+            String fileSignature = request.get("signature").getAsString();
+            byte[] signature = Base64.getDecoder().decode(fileSignature);
+
+            //signature = decipherHash(signature, _clients.get(username).getPublicKey());
+
+            /*if (!Arrays.equals(computedSignature, signature)) {
+                throw new exception
+            }*/
 
             // TODO: Change to receive small number of bytes each time
 
             // Clean File
-            new FileOutputStream(fi.getFile()).close();
-            receiveFileFromSocket(fi.getFile(), is);
-            editFile(fi, checksum);
+            editFile(tempFilePath, fi, signature);
 
-            // Send to backup
             // Send file to backup
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | NoSuchAlgorithmException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -231,7 +281,10 @@ class ServerThread extends Thread {
         }
     }
 
-    public void receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
+    public byte[] receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException, NoSuchAlgorithmException {
+
+        MessageDigest messageDigest = getMessageDigest();
+
         byte[] fileChunk;
         boolean fileFinish = false;
         while(!fileFinish) {
@@ -239,15 +292,19 @@ class ServerThread extends Thread {
             if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
                 fileFinish = true;
             } else {
+                messageDigest.update(fileChunk, 0, fileChunk.length);
                 Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
             }
         }
+        return messageDigest.digest();
     }
 
 
 
-    public void editFile(FileInfo fi, byte[] checksum) {
-        fi.setLatestChecksum(checksum);
+    public void editFile(Path tempFilePath, FileInfo fi, byte[] signature) throws IOException {
+        Files.copy(tempFilePath, fi.getFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
+        Files.delete(tempFilePath);
+        fi.setLatestChecksum(signature);
         fi.updateVersion();
     }
 
@@ -310,6 +367,13 @@ class ServerThread extends Thread {
         }
 
         return messageDigest.digest();
+    }
+
+    private void sendAck(ObjectOutputStream os) throws IOException {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        reply.addProperty("response", "OK");
+
+        os.writeObject(reply.toString());
     }
 
     private SSLSocket connectToBackupServer() {

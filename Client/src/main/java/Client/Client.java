@@ -1,6 +1,7 @@
 package Client;
 
 import Client.exceptions.InvalidPathException;
+import Client.exceptions.MessageNotAckedException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -13,7 +14,6 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.StreamSupport;
 
 public class Client {
 
@@ -68,7 +68,7 @@ public class Client {
         System.out.println("Filename: " + path);
         try {
             createFile(path, os, is);
-        }catch (InvalidPathException e) {
+        }catch (InvalidPathException | MessageNotAckedException e) {
             System.out.println(e.getMessage());
         } catch (IOException | ClassNotFoundException | IllegalBlockSizeException | InvalidKeyException | BadPaddingException | NoSuchPaddingException | CertificateException | KeyStoreException | UnrecoverableKeyException e) {
             e.printStackTrace();
@@ -77,7 +77,7 @@ public class Client {
     }
 
     /* Types to be better thought out */
-    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException {
+    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException {
 
         Path filePath = FileSystems.getDefault().getPath("files", path);
         Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
@@ -99,27 +99,27 @@ public class Client {
         request.addProperty("username", _username);
         request.addProperty("path", relativeFilePath.toString());
 
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
 
-        // Compute signature of file
-        FileInputStream fis = new FileInputStream(String.valueOf(filePath));
-        request.addProperty("signature", Base64.getEncoder().encodeToString(computeFileSignature(fis)));
-        fis.close();
+        // Wait for ACK
+        ackMessage(is);
+
+        byte[] fileSignature = sendFileToServer(os, filePath, secretKey);
+
+        ackMessage(is);
+
+        request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("signature", Base64.getEncoder().encodeToString(fileSignature));
 
         System.out.println(request.toString());
         os.writeObject(request.toString());
 
-        sendFileToServer(os, filePath, secretKey);
-
-        String line;
-        System.out.println("Waiting");
-        line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
-
-        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-        System.out.println("Result: " + reply.get("response").getAsString());
-
+        ackMessage(is);
+        System.out.println("Operation Successful");
     }
+
+
 
     public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
         System.out.print("Please enter file path to edit (from the files directory): ");
@@ -128,12 +128,12 @@ public class Client {
 
         try {
             editFile(path, os, is);
-        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException e) {
+        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException e) {
             e.printStackTrace();
         }
     }
 
-    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException {
+    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException, MessageNotAckedException {
         Path filePath = FileSystems.getDefault().getPath("files", path);
         Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
 
@@ -157,59 +157,49 @@ public class Client {
         }
         request.addProperty("path", relativeFilePath.toString());
 
-        // Compute signature of file
-        FileInputStream fis = new FileInputStream(String.valueOf(filePath));
-        request.addProperty("signature", Base64.getEncoder().encodeToString(computeFileSignature(fis)));
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
 
-        fis.close();
+        ackMessage(is);
+
+        byte[] newFileSignature = sendFileToServer(os, filePath, fileSecretKey);
+
+        ackMessage(is);
+
+        request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("signature", Base64.getEncoder().encodeToString(newFileSignature));
 
         System.out.println(request.toString());
         os.writeObject(request.toString());
 
-        sendFileToServer(os, filePath, fileSecretKey);
-
-        String line;
-        System.out.println("Waiting");
-        line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
-
-        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-        System.out.println("Result: " + reply.get("response").getAsString());
-
+        ackMessage(is);
+        System.out.println("Operation Successful");
     }
 
-    private void sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException {
+    // Sends file to server and returns the created signature
+    private byte[] sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException, CertificateException, KeyStoreException, UnrecoverableKeyException {
         FileInputStream fis;
         Cipher fileCipher = getFileCipher(fileSecretKey);
+        MessageDigest messageDigest = getMessageDigest();
 
         // Send file 8k bytes at a time
         fis = new FileInputStream(String.valueOf(filePath));
-        CipherInputStream cin = new CipherInputStream(fis, fileCipher);
+        try (CipherInputStream cin = new CipherInputStream(fis, fileCipher)) {
 
-        byte[] fileChunk = new byte[8 * 1024];
-        int bytesRead;
+            byte[] fileChunk = new byte[8 * 1024];
+            int bytesRead;
 
-        while ((bytesRead = cin.read(fileChunk)) >= 0) {
-            os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+            while ((bytesRead = cin.read(fileChunk)) >= 0) {
+                messageDigest.update(fileChunk, 0, bytesRead);
+                os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+                os.flush();
+            }
+            os.writeObject(Base64.getDecoder().decode("FileDone"));
             os.flush();
         }
-        os.writeObject(Base64.getDecoder().decode("FileDone"));
-        os.flush();
-        cin.close();
-    }
 
-
-    private byte[] computeFileSignature(FileInputStream fis) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        // returns signature of sent file
         // Compute checksum of this File and cipher with Private Key
-        MessageDigest messageDigest = getMessageDigest();
-        byte[] fileChunk = new byte[8*1024];
-        int count;
-        while ((count = fis.read(fileChunk)) != -1) {
-            messageDigest.update(fileChunk, 0, count);
-        }
-
-        // Cipher with client's Private Key
         PrivateKey clientPrivateKey = getClientPrivateKey();
         return cipherHash(messageDigest.digest(), clientPrivateKey);
     }
@@ -280,6 +270,19 @@ public class Client {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
         return (PrivateKey) ks.getKey("client", _keyStorePass);
+    }
+
+    private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        if (!reply.get("response").getAsString().equals("OK")) {
+            throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
+        }
+        return true;
     }
 
 }
