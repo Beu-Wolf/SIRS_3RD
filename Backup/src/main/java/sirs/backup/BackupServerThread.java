@@ -42,10 +42,10 @@ public class BackupServerThread extends Thread {
             String operation = operationJson.get("operation").getAsString();
             switch (operation) {
                 case "BackupFile":
-                    reply = parseBackupFile(operationJson, is);
+                    reply = parseBackupFile(operationJson, is, os);
                     break;
                 case "RestoreFile":
-                    reply = parseRestoreFile(operationJson, os);
+                    reply = parseRestoreFile(operationJson, is, os);
                     break;
                 default:
                     throw new IOException("Invalid operation");
@@ -64,7 +64,7 @@ public class BackupServerThread extends Thread {
     }
 
     /* Takes a file from the server and stores it */
-    private JsonObject parseBackupFile(JsonObject request, ObjectInputStream is) {
+    private JsonObject parseBackupFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
         JsonObject reply;
         try {
 
@@ -77,11 +77,16 @@ public class BackupServerThread extends Thread {
 
             File file = new File(String.valueOf(filePath));
             file.createNewFile();
-            receiveFileFromSocket(file, is);
 
             // Get signature
             String fileSignature = request.get("signature").getAsString();
             byte[] signature = Base64.getDecoder().decode(fileSignature);
+
+            sendAck(os);
+
+            receiveFileFromSocket(file, is);
+
+            sendAck(os);
 
             _files.add(new BackupFileInfo(file, request.get("path").getAsString(), request.get("lastEditor").getAsString(), signature, request.get("version").getAsInt()));
 
@@ -99,7 +104,7 @@ public class BackupServerThread extends Thread {
     }
 
     /* Gives back the file to the requesting server */
-    private JsonObject parseRestoreFile(JsonObject request, ObjectOutputStream os) {
+    private JsonObject parseRestoreFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
         JsonObject reply;
         try {
             // get wanted file (last file)
@@ -156,6 +161,13 @@ public class BackupServerThread extends Thread {
             os.writeObject(Base64.getDecoder().decode("FileDone"));
             os.flush();
         }
+    }
+
+    private void sendAck(ObjectOutputStream os) throws IOException {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        reply.addProperty("response", "OK");
+
+        os.writeObject(reply.toString());
     }
 
 }
