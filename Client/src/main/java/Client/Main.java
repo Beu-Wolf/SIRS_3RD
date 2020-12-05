@@ -24,6 +24,7 @@ public class Main {
         }
 
         Client client = new Client("localhost", 10000, filesDir, keysDir);
+
         client.interactive();
     }
 
