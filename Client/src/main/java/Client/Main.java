@@ -10,9 +10,14 @@ public class Main {
         }
 
         final String _clientHost = args[0];
-        final int _clientPort = Integer.parseInt(args[1]);
+        int _clientPort = 0;
 
-
+        try {
+            _clientPort = Integer.parseInt(args[1]);
+        } catch(NumberFormatException e) {
+            System.out.println("Port isn't a integer.");
+        }
+        
         Client client = new Client("localhost", 10000, _clientHost, _clientPort);
         client.interactive();
     }

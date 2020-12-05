@@ -97,8 +97,6 @@ public class Client {
     public void parseRegister(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
         System.out.println("Please enter your username");
         String username = scanner.nextLine().trim();
-        System.out.println("Please enter your email");
-        String email = scanner.nextLine().trim();
         System.out.println("Please enter your password");
         String pw1 = scanner.nextLine().trim();
         System.out.println("Please re-enter your password to confirm");
@@ -107,16 +105,15 @@ public class Client {
             System.out.println("Passwords don't match");
         }
         else {
-            register(username, email, pw1, os, is);
+            register(username, pw1, os, is);
         }
     }
 
-    public void register(String username, String email, String password, ObjectOutputStream os, ObjectInputStream is) throws KeyStoreException, IOException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+    public void register(String username, String password, ObjectOutputStream os, ObjectInputStream is) throws KeyStoreException, IOException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
 
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "RegisterUser");
         request.addProperty("username", username);
-        request.addProperty("email", email);
         request.addProperty("password", password);
 
         String url = _clientHost + ":" + _clientPort;
@@ -127,9 +124,8 @@ public class Client {
         ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
 
         final Certificate cert = ks.getCertificate("client");
-        final PublicKey publicKey = cert.getPublicKey();
 
-        request.addProperty("pub_key", Base64.getEncoder().encodeToString(publicKey.getEncoded()));
+        request.addProperty("cert", Base64.getEncoder().encodeToString(cert.getEncoded()));
 
         System.out.println(request.toString());
         os.writeObject(request.toString());

@@ -15,6 +15,8 @@ import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
@@ -42,7 +44,7 @@ class ServerThread extends Thread {
         _files = files;
         _password = password;
         _socket = socket;
-        _clients.put("testUser", new ClientInfo(null, null, "testUser", null, null));
+        _clients.put("testUser", new ClientInfo(null, null, "testUser", null));
         _backupSocketFactory = backupSocketFactory;
     }
 
@@ -102,14 +104,11 @@ class ServerThread extends Thread {
 
     }
 
-    public boolean canRegister(String username, String email) {
+    public boolean canRegister(String username) {
 
-        if (_clients.containsKey(username)) { return true; }
+        if (_clients.containsKey(username)) { return false; }
 
-        for (ClientInfo c: _clients.values()) {
-            if (c.getEmail().equals(email)) { return true; }
-        }
-        return false;
+        return true;
     }
 
     public boolean matchPasswords(String username, String pw) {
@@ -147,37 +146,37 @@ class ServerThread extends Thread {
 
         JsonObject reply;
         try {
-            // Extract public key
-            String publicKeyString = request.get("pub_key").getAsString();
-            byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyString);
-            PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
-            // verify if public key is signed by the trusted CA
-            Certificate ca = getClientCACert();
-            ca.verify(publicKey);
+            String certString = request.get("cert").getAsString();
+            byte[] certBytes = Base64.getDecoder().decode(certString);
+
+            CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+
+            InputStream in = new ByteArrayInputStream(certBytes);
+            X509Certificate cert = (X509Certificate)certFactory.generateCertificate(in);
+
+            cert.verify(getClientCACert().getPublicKey());
 
             String username = request.get("username").getAsString();
-            String email = request.get("email").getAsString();
             String password = request.get("password").getAsString();
 
             String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
 
             System.out.println(hashed);
-            System.out.println(_clients.get(username).getPassword());
 
             String url = request.get("url").getAsString();
 
-            if (!canRegister(username, email)) {
+            if (!canRegister(username)) {
                 reply = JsonParser.parseString("{}").getAsJsonObject();
-                reply.addProperty("response", "NOK: Username or Email already in use.");
+                reply.addProperty("response", "NOK: Username already in use.");
             }
             else {
-                registerClient(url, publicKey, username, email, hashed);
+                registerClient(url, cert, username, hashed);
                 reply = JsonParser.parseString("{}").getAsJsonObject();
                 reply.addProperty("response", "OK");
             }
             return reply;
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException |
+        } catch (NoSuchAlgorithmException |
                 IOException | CertificateException | InvalidKeyException |
                 SignatureException | KeyStoreException | NoSuchProviderException e) {
             reply = JsonParser.parseString("{}").getAsJsonObject();
@@ -186,8 +185,8 @@ class ServerThread extends Thread {
         }
     }
 
-    public void registerClient(String url, PublicKey publicKey, String username, String email, String password) {
-        _clients.put(username, new ClientInfo(url, publicKey, username, email, password));
+    public void registerClient(String url, Certificate cert, String username, String password) {
+        _clients.put(username, new ClientInfo(url, cert, username, password));
         System.out.println(_clients);
     }
 
