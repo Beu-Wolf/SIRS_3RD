@@ -266,8 +266,6 @@ public class Client {
 
     public void deleteFile(String path) {}
 
-    public void login(/*...*/) {}
-
     private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "Exit");

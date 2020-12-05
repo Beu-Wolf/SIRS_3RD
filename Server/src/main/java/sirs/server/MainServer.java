@@ -102,11 +102,12 @@ class ServerThread extends Thread {
 
     }
 
-    public boolean verifyCredentials(String username, String email) {
+    public boolean canRegister(String username, String email) {
 
-        if (_clients.containsKey(username)) {
-            if (_clients.get(username).getEmail().equals(email)) { return true; }
-            return false;
+        if (_clients.containsKey(username)) { return true; }
+
+        for (ClientInfo c: _clients.values()) {
+            if (c.getEmail().equals(email)) { return true; }
         }
         return false;
     }
@@ -114,7 +115,7 @@ class ServerThread extends Thread {
     public boolean matchPasswords(String username, String pw) {
 
         if (_clients.containsKey(username)) {
-            return BCrypt.checkpw(_clients.get(username).getPassword(), pw);
+            return BCrypt.checkpw(pw, _clients.get(username).getPassword());
         }
         return false;
     }
@@ -139,7 +140,7 @@ class ServerThread extends Thread {
     }
 
     private void login(String username) {
-        _online = true;
+        _clients.get(username).setUserOnline(true);
     }
 
     private JsonObject parseRegister(JsonObject request) {
@@ -166,7 +167,7 @@ class ServerThread extends Thread {
 
             String url = request.get("url").getAsString();
 
-            if (!verifyCredentials(username, email)) {
+            if (!canRegister(username, email)) {
                 reply = JsonParser.parseString("{}").getAsJsonObject();
                 reply.addProperty("response", "NOK: Username or Email already in use.");
             }
