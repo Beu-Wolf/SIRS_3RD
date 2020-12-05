@@ -10,6 +10,7 @@ import java.io.*;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.security.*;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.util.Arrays;
 import java.util.Base64;
@@ -19,14 +20,18 @@ import java.util.regex.Pattern;
 public class Client {
 
     private String _username = "testUser"; // change this to be defined when registering/logging in
+    private String _clientHost;
+    private int _clientPort;
     private String _serverHost;
     private int _serverPort;
     SSLSocket _currentConnectionSocket;
     private char[] _keyStorePass = "changeit".toCharArray();
 
-    public Client(String serverHost, int serverPort) {
+    public Client(String serverHost, int serverPort, String clientHost, int clientPort) {
         _serverHost = serverHost;
         _serverPort = serverPort;
+        _clientHost = clientHost;
+        _clientPort = clientPort;
     }
 
     public void interactive() {
@@ -45,17 +50,103 @@ public class Client {
                             _currentConnectionSocket.close();
                         }
                         break;
+                    } else if (Pattern.matches("^register$", command)) {
+                        parseRegister(scanner, os, is);
+                    } else if (Pattern.matches("^login$", command)) {
+                        parseLogin(scanner, os, is);
                     } else if(Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
                     }
 
 
             }
-        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException e) {
+        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException | ClassNotFoundException e) {
             e.printStackTrace();
         }
         scanner.close();
 
+    }
+    public void parseLogin(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
+
+        System.out.println("Please enter your username");
+        String username = scanner.nextLine().trim();
+        System.out.println("Please enter your password");
+        String password = scanner.nextLine().trim();
+
+        login(username, password, os, is);
+    }
+
+    public void login(String username, String password, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "LoginUser");
+        request.addProperty("username", username);
+        request.addProperty("password", password);
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        String line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        System.out.println("Result: " + reply.get("response").getAsString());
+    }
+
+    public void parseRegister(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+        System.out.println("Please enter your username");
+        String username = scanner.nextLine().trim();
+        System.out.println("Please enter your password");
+        String pw1 = scanner.nextLine().trim();
+        System.out.println("Please re-enter your password to confirm");
+        String pw2 = scanner.nextLine().trim();
+        if (!pw1.equals(pw2)) {
+            System.out.println("Passwords don't match");
+        }
+        else {
+            register(username, pw1, os, is);
+        }
+    }
+
+    public void register(String username, String password, ObjectOutputStream os, ObjectInputStream is) throws KeyStoreException, IOException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "RegisterUser");
+        request.addProperty("username", username);
+        request.addProperty("password", password);
+
+        String url = _clientHost + ":" + _clientPort;
+
+        request.addProperty("url", url);
+
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+
+        final Certificate cert = ks.getCertificate("client");
+
+        request.addProperty("cert", Base64.getEncoder().encodeToString(cert.getEncoded()));
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        String line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject replyJson = JsonParser.parseString(line).getAsJsonObject();
+
+        String reply = replyJson.get("response").getAsString().split(":")[0];
+
+        if (reply.equals("OK")) {
+            _username = username;
+            System.out.println("Result: " + replyJson.get("response").getAsString());
+            System.out.println("Register Successful");
+        }
+        else {
+            System.out.println("Result: " + replyJson.get("response").getAsString());
+            System.out.println("Register Unsuccessful");
+        }
     }
 
 
@@ -170,8 +261,6 @@ public class Client {
     public void shareFile(/*...*/) {}
 
     public void deleteFile(String path) {}
-
-    public void login(/*...*/) {}
 
     private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
