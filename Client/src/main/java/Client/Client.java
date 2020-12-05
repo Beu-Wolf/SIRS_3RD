@@ -68,9 +68,9 @@ public class Client {
     }
     public void parseLogin(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
-        System.out.print("Please enter your username");
+        System.out.println("Please enter your username");
         String username = scanner.nextLine().trim();
-        System.out.print("Please enter your password");
+        System.out.println("Please enter your password");
         String password = scanner.nextLine().trim();
 
         login(username, password, os, is);
@@ -95,13 +95,13 @@ public class Client {
     }
 
     public void parseRegister(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
-        System.out.print("Please enter your username");
+        System.out.println("Please enter your username");
         String username = scanner.nextLine().trim();
-        System.out.print("Please enter your email");
+        System.out.println("Please enter your email");
         String email = scanner.nextLine().trim();
-        System.out.print("Please enter your password");
+        System.out.println("Please enter your password");
         String pw1 = scanner.nextLine().trim();
-        System.out.print("Please re-enter your password to confirm");
+        System.out.println("Please re-enter your password to confirm");
         String pw2 = scanner.nextLine().trim();
         if (!pw1.equals(pw2)) {
             System.out.println("Passwords don't match");
