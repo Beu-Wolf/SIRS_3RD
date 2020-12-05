@@ -32,11 +32,19 @@ public class FileInfo {
         return _signature;
     }
 
+    public void setLatestSignature(byte[] latestSignature) {
+        _signature = latestSignature;
+    }
+
     public void updateVersion() {
         _currentVersion++;
     }
 
     public void addEditor(ClientInfo client) {
         _editors.add(client);
+    }
+
+    public boolean containsEditor(ClientInfo client) {
+        return _editors.contains(client);
     }
 }
