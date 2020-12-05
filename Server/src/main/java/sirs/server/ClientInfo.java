@@ -4,14 +4,12 @@ import java.security.PublicKey;
 import java.security.cert.Certificate;
 
 public class ClientInfo {
-    private String _url;
     private Certificate _certificate;
     private String _username;
     private String _password;
     private boolean _online;
 
-    public ClientInfo(String url, Certificate certificate, String username, String password) {
-        _url = url;
+    public ClientInfo(Certificate certificate, String username, String password) {
         _certificate = certificate;
         _username = username;
         _password = password;
@@ -20,10 +18,6 @@ public class ClientInfo {
 
     public PublicKey getPublicKey() {
         return _certificate.getPublicKey();
-    }
-
-    public String getUrl() {
-        return _url;
     }
 
     public String getUsername() {

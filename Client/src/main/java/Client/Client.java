@@ -20,18 +20,18 @@ import java.util.regex.Pattern;
 public class Client {
 
     private String _username = "testUser"; // change this to be defined when registering/logging in
-    private String _clientHost;
-    private int _clientPort;
     private String _serverHost;
     private int _serverPort;
+    private String _filesDir;
+    private String _keysDir;
     SSLSocket _currentConnectionSocket;
     private char[] _keyStorePass = "changeit".toCharArray();
 
-    public Client(String serverHost, int serverPort, String clientHost, int clientPort) {
+    public Client(String serverHost, int serverPort, String filesDir, String keysDir) {
         _serverHost = serverHost;
         _serverPort = serverPort;
-        _clientHost = clientHost;
-        _clientPort = clientPort;
+        _filesDir = filesDir;
+        _keysDir = keysDir;
     }
 
     public void interactive() {
@@ -116,10 +116,6 @@ public class Client {
         request.addProperty("username", username);
         request.addProperty("password", password);
 
-        String url = _clientHost + ":" + _clientPort;
-
-        request.addProperty("url", url);
-
         KeyStore ks = KeyStore.getInstance("PKCS12");
         ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
 
@@ -167,8 +163,8 @@ public class Client {
     /* Types to be better thought out */
     public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException {
 
-        Path filePath = FileSystems.getDefault().getPath("files", path);
-        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
 
         if(relativeFilePath.startsWith("sharedFiles")) {
             throw new InvalidPathException("Can't create a file in the sharedFilesFolder");
@@ -276,12 +272,12 @@ public class Client {
         KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
         KeyStore ks = KeyStore.getInstance("PKCS12");
 
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
         kmf.init(ks, _keyStorePass);
 
 
         KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-        ksTrust.load(new FileInputStream("keys/client.truststore.pk12"), _keyStorePass);
+        ksTrust.load(new FileInputStream(_keysDir + "/client.truststore.pk12"), _keyStorePass);
         TrustManagerFactory tm = TrustManagerFactory.getInstance("SunX509");
         tm.init(ksTrust);
         SSLContext sslContext = SSLContext.getInstance("TLS");
@@ -299,7 +295,7 @@ public class Client {
 
     private PrivateKey getClientPrivateKey() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException {
         KeyStore ks = KeyStore.getInstance("PKCS12");
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
         return (PrivateKey) ks.getKey("client", _keyStorePass);
     }
 

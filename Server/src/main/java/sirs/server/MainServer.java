@@ -44,7 +44,7 @@ class ServerThread extends Thread {
         _files = files;
         _password = password;
         _socket = socket;
-        _clients.put("testUser", new ClientInfo(null, null, "testUser", null));
+        _clients.put("testUser", new ClientInfo(null, "testUser", null));
         _backupSocketFactory = backupSocketFactory;
     }
 
@@ -164,14 +164,12 @@ class ServerThread extends Thread {
 
             System.out.println(hashed);
 
-            String url = request.get("url").getAsString();
-
             if (!canRegister(username)) {
                 reply = JsonParser.parseString("{}").getAsJsonObject();
                 reply.addProperty("response", "NOK: Username already in use.");
             }
             else {
-                registerClient(url, cert, username, hashed);
+                registerClient(cert, username, hashed);
                 reply = JsonParser.parseString("{}").getAsJsonObject();
                 reply.addProperty("response", "OK");
             }
@@ -185,8 +183,8 @@ class ServerThread extends Thread {
         }
     }
 
-    public void registerClient(String url, Certificate cert, String username, String password) {
-        _clients.put(username, new ClientInfo(url, cert, username, password));
+    public void registerClient(Certificate cert, String username, String password) {
+        _clients.put(username, new ClientInfo(cert, username, password));
         System.out.println(_clients);
     }
 
