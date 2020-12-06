@@ -403,6 +403,8 @@ class ServerThread extends Thread {
             ClientInfo client = _clients.get(username);
             client.shareFile(sharePath, cipheredKey, _loggedInUser);
 
+            _files.get(pathStr).addEditor(client);
+
             reply.addProperty("response", "OK");
         } catch (Exception e) {
             e.printStackTrace();
