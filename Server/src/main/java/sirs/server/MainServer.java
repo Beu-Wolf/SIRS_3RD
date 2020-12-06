@@ -180,7 +180,7 @@ class ServerThread extends Thread {
             FileInfo fi = createNewFile(tempFilePath, newFilePath, _clients.get(username), signature);
 
             // Send file to backup
-            sendFileToBackup(request, username, fi, fileSignature);
+            sendFileToBackup(newFilePath, username, fi, fileSignature);
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
@@ -264,9 +264,10 @@ class ServerThread extends Thread {
             }*/
 
             // Send to backup
-            sendFileToBackup(request, username, fi, fileSignature);
-
             editFile(tempFilePath, fi, signature);
+
+            sendFileToBackup(filePath, username, fi, fileSignature);
+
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
@@ -288,7 +289,7 @@ class ServerThread extends Thread {
         fi.updateVersion();
     }
 
-    private void sendFileToBackup(JsonObject request, String username, FileInfo fi, String fileSignature) throws IOException, ClassNotFoundException, BackupException, MessageNotAckedException {
+    private void sendFileToBackup(Path filePath, String username, FileInfo fi, String fileSignature) throws IOException, ClassNotFoundException, BackupException, MessageNotAckedException {
 
         SSLSocket connectionToBackup = connectToBackupServer();
         assert connectionToBackup != null;
@@ -302,7 +303,10 @@ class ServerThread extends Thread {
         backupRequest.addProperty("version", fi.getCurrentVersion());
         backupRequest.addProperty("signature", fileSignature);
 
-        Path backupFilePath = Paths.get(username, request.get("path").getAsString());
+
+
+
+        Path backupFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder).relativize(filePath);
         System.out.println("Backup Path: " + backupFilePath);
         backupRequest.addProperty("path", backupFilePath.toString());
 
