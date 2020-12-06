@@ -2,6 +2,7 @@
 
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <keys_folder>"
+    exit
 fi
 
 source ./common.sh
