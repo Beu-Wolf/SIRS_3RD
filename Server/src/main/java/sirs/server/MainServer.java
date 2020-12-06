@@ -14,16 +14,19 @@ import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
+import java.security.cert.CertificateFactory;
+import java.security.cert.X509Certificate;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import org.mindrot.jbcrypt.BCrypt;
+
 
 
 class ServerThread extends Thread {
 
     private ConcurrentHashMap<String, ClientInfo> _clients;
     private List<FileInfo> _files;
+    private boolean _online = false;
 
     private char[] _password;
     private SSLSocket _socket;
@@ -38,7 +41,6 @@ class ServerThread extends Thread {
         _files = files;
         _password = password;
         _socket = socket;
-        _clients.put("testUser", new ClientInfo(null, null, "testUser"));
         _backupSocketFactory = backupSocketFactory;
     }
 
@@ -62,7 +64,10 @@ class ServerThread extends Thread {
                 String operation = operationJson.get("operation").getAsString();
                 switch (operation) {
                     case "RegisterUser":
-                        reply = parseReceiveUserKey(operationJson);
+                        reply = parseRegister(operationJson);
+                        break;
+                    case "LoginUser":
+                        reply = parseLogin(operationJson);
                         break;
                     case "CreateFile":
                         reply = parseCreateFile(operationJson, is, os);
@@ -99,26 +104,77 @@ class ServerThread extends Thread {
 
     }
 
-    private JsonObject parseReceiveUserKey(JsonObject request) {
+    public boolean canRegister(String username) {
+
+        if (_clients.containsKey(username)) { return false; }
+
+        return true;
+    }
+
+    public boolean matchPasswords(String username, String pw) {
+
+        if (_clients.containsKey(username)) {
+            return BCrypt.checkpw(pw, _clients.get(username).getPassword());
+        }
+        return false;
+    }
+
+    private JsonObject parseLogin(JsonObject request) {
+
+        JsonObject reply;
+
+        String username = request.get("username").getAsString();
+        String password = request.get("password").getAsString();
+
+        if (!matchPasswords(username, password)) {
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "NOK: Wrong Password.");
+        }
+        else {
+            login(username);
+            reply = JsonParser.parseString("{}").getAsJsonObject();
+            reply.addProperty("response", "OK");
+        }
+        return reply;
+    }
+
+    private void login(String username) {
+        _clients.get(username).setUserOnline(true);
+    }
+
+    private JsonObject parseRegister(JsonObject request) {
 
         JsonObject reply;
         try {
-            // Extract public key
-            String publicKeyString = request.get("pub_key").getAsString();
-            byte[] publicKeyBytes = Base64.getDecoder().decode(publicKeyString);
-            PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
-            // verify if public key is signed by the trusted CA
-            Certificate ca = getClientCACert();
-            ca.verify(publicKey);
+            String certString = request.get("cert").getAsString();
+            byte[] certBytes = Base64.getDecoder().decode(certString);
+
+            CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
+
+            InputStream in = new ByteArrayInputStream(certBytes);
+            X509Certificate cert = (X509Certificate)certFactory.generateCertificate(in);
+
+            cert.verify(getClientCACert().getPublicKey());
 
             String username = request.get("username").getAsString();
-            String url = request.get("url").getAsString();
-            receiveUserKey(url, publicKey, username);
-            reply = JsonParser.parseString("{}").getAsJsonObject();
-            reply.addProperty("response", "OK");
+            String password = request.get("password").getAsString();
+
+            String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
+
+            System.out.println(hashed);
+
+            if (!canRegister(username)) {
+                reply = JsonParser.parseString("{}").getAsJsonObject();
+                reply.addProperty("response", "NOK: Username already in use.");
+            }
+            else {
+                registerClient(cert, username, hashed);
+                reply = JsonParser.parseString("{}").getAsJsonObject();
+                reply.addProperty("response", "OK");
+            }
             return reply;
-        } catch (NoSuchAlgorithmException | InvalidKeySpecException |
+        } catch (NoSuchAlgorithmException |
                 IOException | CertificateException | InvalidKeyException |
                 SignatureException | KeyStoreException | NoSuchProviderException e) {
             reply = JsonParser.parseString("{}").getAsJsonObject();
@@ -127,9 +183,9 @@ class ServerThread extends Thread {
         }
     }
 
-
-    public void receiveUserKey(String url, PublicKey publicKey, String username) { // Can also receive the message here and parse in this function
-        _clients.put(username, new ClientInfo(url, publicKey, username));
+    public void registerClient(Certificate cert, String username, String password) {
+        _clients.put(username, new ClientInfo(cert, username, password));
+        System.out.println(_clients);
     }
 
 
@@ -157,8 +213,8 @@ class ServerThread extends Thread {
             file.createNewFile();
             new FileOutputStream(file).close(); // Clean file
 
-            byte[] computedSignature = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedSignature));
+            byte[] computedHash = receiveFileFromSocket(file, is);
+            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
@@ -171,11 +227,11 @@ class ServerThread extends Thread {
             String fileSignature = request.get("signature").getAsString();
             byte[] signature = Base64.getDecoder().decode(fileSignature);
 
-            //signature = decipherHash(signature, _clients.get(username).getPublicKey());
+            byte[] fileHash = decipherHash(signature, _clients.get(username).getPublicKey());
 
-            /*if (!Arrays.equals(computedSignature, signature)) {
-                throw new exception
-            }*/
+            if (!Arrays.equals(computedHash, fileHash)) {
+                throw new InvalidHashException("File Signatures do not match");
+            }
 
             FileInfo fi = createNewFile(tempFilePath, newFilePath, _clients.get(username), signature);
 
@@ -185,7 +241,7 @@ class ServerThread extends Thread {
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | ClassNotFoundException | NoClientException | BackupException | NoSuchAlgorithmException | MessageNotAckedException e) {
+        } catch (IOException | ClassNotFoundException | NoClientException | NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException | InvalidHashException | BackupException | MessageNotAckedException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -243,8 +299,8 @@ class ServerThread extends Thread {
             file.createNewFile();
             new FileOutputStream(file).close(); // Clean file
 
-            byte[] computedSignature = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedSignature));
+            byte[] computedHash = receiveFileFromSocket(file, is);
+            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
@@ -257,13 +313,12 @@ class ServerThread extends Thread {
             String fileSignature = request.get("signature").getAsString();
             byte[] signature = Base64.getDecoder().decode(fileSignature);
 
-            //signature = decipherHash(signature, _clients.get(username).getPublicKey());
+            byte[] fileHash = decipherHash(signature, _clients.get(username).getPublicKey());
 
-            /*if (!Arrays.equals(computedSignature, signature)) {
-                throw new exception
-            }*/
+            if (!Arrays.equals(computedHash, fileHash)) {
+                throw new InvalidHashException("File signatures do not match!");
+            }
 
-            // Send to backup
             editFile(tempFilePath, fi, signature);
 
             sendFileToBackup(filePath, username, fi, fileSignature);
@@ -272,7 +327,7 @@ class ServerThread extends Thread {
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | BackupException | NoSuchAlgorithmException | MessageNotAckedException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | BackupException | NoSuchAlgorithmException | MessageNotAckedException | NoSuchPaddingException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException | InvalidHashException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -380,7 +435,7 @@ class ServerThread extends Thread {
             reply.addProperty("response" , "OK");
             return reply;
 
-        } catch (NoClientException | MissingFileException | InvalidEditorException | IOException | ClassNotFoundException | BackupException | NoSuchAlgorithmException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | NoSuchAlgorithmException | BackupException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
