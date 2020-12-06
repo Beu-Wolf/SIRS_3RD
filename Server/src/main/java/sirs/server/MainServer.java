@@ -26,7 +26,7 @@ import org.mindrot.jbcrypt.BCrypt;
 class ServerThread extends Thread {
 
     private ConcurrentHashMap<String, ClientInfo> _clients;
-    private List<FileInfo> _files;
+    private ConcurrentHashMap<String, FileInfo> _files;
     private boolean _online = false;
     private String _loggedInUser;
 
@@ -38,7 +38,7 @@ class ServerThread extends Thread {
     private String filesRootFolder = "files";
 
 
-    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, List<FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
+    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, ConcurrentHashMap<String, FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
         _clients = clients;
         _files = files;
         _password = password;
@@ -257,11 +257,12 @@ class ServerThread extends Thread {
 
         Files.delete(tempPath);
 
-        File file = new File(String.valueOf(newPath));
+        String path = String.valueOf(newPath);
+        File file = new File(path);
 
         FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
-        _files.add(fi);
+        _files.put(path, fi);
 
     }
 
@@ -281,12 +282,13 @@ class ServerThread extends Thread {
             }
 
             // Verify if file exists
-            FileInfo fi = _files.stream().filter(x -> x.getFile().toPath().equals(filePath)).findFirst().orElse(null);
-            if(fi == null) {
-                 throw new MissingFileException(filePath.toString());
+            String pathStr = filePath.toString();
+            if(!_files.containsKey(pathStr)) {
+                 throw new MissingFileException(pathStr);
             }
 
             // Verify permission to edit file
+            FileInfo fi = _files.get(pathStr);
             if (!fi.containsEditor(_clients.get(username))) {
                 throw new InvalidEditorException(username, filePath.toString());
             }
@@ -378,8 +380,8 @@ class ServerThread extends Thread {
             Path sharePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, _loggedInUser, path).normalize();
 
             // Verify if file exists
-            FileInfo fi = _files.stream().filter(x -> x.getFile().toPath().equals(sharePath)).findFirst().orElse(null);
-            if(fi == null) {
+            String pathStr = sharePath.toString();
+            if(!_files.containsKey(pathStr)) {
                 throw new MissingFileException(sharePath.toString());
             }
 
@@ -411,7 +413,7 @@ class ServerThread extends Thread {
     }
 
     public void updateFile(String path, String content) {
-        FileInfo fileToShare = _files.stream().filter(x -> x.getFile().getPath().equals(path)).findFirst().orElse(null);
+        FileInfo fileToShare = _files.get(path);
         if(fileToShare != null) {
             try (FileWriter fw = new FileWriter(fileToShare.getFile())) {
                 fw.write(content);
@@ -491,7 +493,7 @@ class ServerThread extends Thread {
 public class MainServer {
 
     private ConcurrentHashMap<String, ClientInfo> _clients = new ConcurrentHashMap<>();
-    private List<FileInfo> _files = Collections.synchronizedList(new ArrayList<>());
+    private ConcurrentHashMap<String, FileInfo> _files = new ConcurrentHashMap<>();
 
     private String _host;
     private int _port;
