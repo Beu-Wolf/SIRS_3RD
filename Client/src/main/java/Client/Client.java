@@ -10,9 +10,12 @@ import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -59,6 +62,8 @@ public class Client {
                         parseCreateFile(scanner, os, is);
                     } else if(Pattern.matches("^edit file$", command)) {
                         parseEditFile(scanner, os, is);
+                    } else if(Pattern.matches("^share file$", command)) {
+                        parseShareFile(scanner, os, is);
                     }
 
 
@@ -120,7 +125,7 @@ public class Client {
         request.addProperty("password", password);
 
         KeyStore ks = KeyStore.getInstance("PKCS12");
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
 
         final Certificate cert = ks.getCertificate("client");
 
@@ -262,10 +267,67 @@ public class Client {
         System.out.println("Operation Successful");
     }
 
+    public void parseShareFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to share (from the files directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.print("Share with user: ");
+        String username = scanner.nextLine().trim();
+
+        try {
+            shareFile(path, username, os, is);
+        } catch(MessageNotAckedException e) {
+            System.err.println(e.getMessage());
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void shareFile(String path, String username, ObjectOutputStream os, ObjectInputStream is)
+            throws IOException, MessageNotAckedException, ClassNotFoundException, NoSuchAlgorithmException,
+            InvalidKeySpecException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException {
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "ShareFile");
+        request.addProperty("path", path);
+        request.addProperty("username", username);
+
+        os.writeObject(request.toString());
+
+        ackMessage(is);
+
+        String encodedPublicKey = JsonParser.parseString((String) is.readObject())
+                .getAsJsonObject().get("publicKey").getAsString();
+
+        System.out.println("Received public key: " + encodedPublicKey);
+        byte[] publicKeyBytes = Base64.getDecoder().decode(encodedPublicKey);
+        PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+
+        FileInfo fi = _files.get(Paths.get(path));
+        System.out.println("File key: " + Base64.getEncoder().encodeToString(fi.getFileSymKey().getEncoded()));
+
+        byte[] cipheredKey = cipherFileKey(fi.getFileSymKey(), publicKey);
+        String encodedCipheredKey = Base64.getEncoder().encodeToString(cipheredKey);
+        System.out.println("Ciphered file key: " + encodedCipheredKey);
+
+        JsonObject cipheredKeyJson = JsonParser.parseString("{}").getAsJsonObject();
+        cipheredKeyJson.addProperty("cipheredFileKey", encodedCipheredKey);
+
+        os.writeObject(cipheredKeyJson.toString());
+    }
+
+    private byte[] cipherFileKey(SecretKey fileKey, PublicKey publicKey)
+            throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException,
+                   BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        return cipher.doFinal(fileKey.getEncoded());
+    }
+
     // Sends file to server and returns the created signature
     private byte[] sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException, CertificateException, KeyStoreException, UnrecoverableKeyException {
         FileInputStream fis;
         Cipher fileCipher = getFileCipher(fileSecretKey);
+
         MessageDigest messageDigest = getMessageDigest();
 
         // Send file 8k bytes at a time

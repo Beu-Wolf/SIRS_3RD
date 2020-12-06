@@ -6,10 +6,7 @@ import sirs.server.exceptions.InvalidEditorException;
 import sirs.server.exceptions.MissingFileException;
 import sirs.server.exceptions.NoClientException;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
+import javax.crypto.*;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.*;
@@ -31,6 +28,7 @@ class ServerThread extends Thread {
     private ConcurrentHashMap<String, ClientInfo> _clients;
     private List<FileInfo> _files;
     private boolean _online = false;
+    private String _loggedInUser;
 
     private char[] _password;
     private SSLSocket _socket;
@@ -78,6 +76,7 @@ class ServerThread extends Thread {
                         reply = parseCreateFile(operationJson, is, os);
                         break;
                     case "ShareFile":
+                        reply = parseShareFile(operationJson, is, os);
                         break;
                     case "EditFile":
                         reply = parseEditFile(operationJson, is, os);
@@ -132,7 +131,6 @@ class ServerThread extends Thread {
             reply.addProperty("response", "NOK: Wrong Password.");
         }
         else {
-            login(username);
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
         }
@@ -140,6 +138,7 @@ class ServerThread extends Thread {
     }
 
     private void login(String username) {
+        _loggedInUser = username;
         _clients.get(username).setUserOnline(true);
     }
 
@@ -186,6 +185,7 @@ class ServerThread extends Thread {
 
     public void registerClient(Certificate cert, String username, String password) {
         _clients.put(username, new ClientInfo(cert, username, password));
+        _loggedInUser = username;
         System.out.println(_clients);
     }
 
@@ -365,13 +365,49 @@ class ServerThread extends Thread {
         fi.updateVersion();
     }
 
-    public void shareFile(String owner, String clientToShare, String path) {
-        FileInfo fileToShare = _files.stream().filter(x -> x.getFile().getPath().equals(path)).findFirst().orElse(null);
-        if(fileToShare != null) {
-            File file = fileToShare.getFile();
+    public JsonObject parseShareFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        try {
+            String path = request.get("path").getAsString();
+            String username = request.get("username").getAsString();
 
-            // Share with user, verify owner
+            if (!_clients.containsKey(username)) {
+                throw new NoClientException(username);
+            }
+
+            Path sharePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, _loggedInUser, path).normalize();
+
+            // Verify if file exists
+            FileInfo fi = _files.stream().filter(x -> x.getFile().toPath().equals(sharePath)).findFirst().orElse(null);
+            if(fi == null) {
+                throw new MissingFileException(sharePath.toString());
+            }
+
+            sendAck(os);
+
+            System.out.println("Sharing: " + sharePath.toString() + " with " + username);
+
+            byte[] keyBytes = _clients.get(username).getPublicKey().getEncoded();
+            String encodedKey = Base64.getEncoder().encodeToString(keyBytes);
+            JsonObject publicKeyReply = JsonParser.parseString("{}").getAsJsonObject();
+            publicKeyReply.addProperty("publicKey", encodedKey);
+
+            os.writeObject(publicKeyReply.toString());
+
+            JsonObject cipheredKeyJson = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
+            System.out.println(cipheredKeyJson.toString());
+            byte[] cipheredKey = Base64.getDecoder().decode(cipheredKeyJson.get("cipheredFileKey").getAsString());
+
+            ClientInfo client = _clients.get(username);
+            client.shareFile(sharePath, cipheredKey, _loggedInUser);
+
+            reply.addProperty("response", "OK");
+        } catch (Exception e) {
+            e.printStackTrace();
+            reply.addProperty("response", "NOK: " + e.getMessage());
         }
+
+        return reply;
     }
 
     public void updateFile(String path, String content) {
