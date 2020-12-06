@@ -1,6 +1,7 @@
 package Client;
 
 import Client.exceptions.InvalidPathException;
+import Client.exceptions.InvalidUsernameException;
 import Client.exceptions.MessageNotAckedException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -11,23 +12,28 @@ import java.io.*;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.security.*;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.util.*;
 import java.util.regex.Pattern;
 
 public class Client {
 
-    private String _username = "testUser"; // change this to be defined when registering/logging in
+    private String _username;
     private String _serverHost;
     private int _serverPort;
+    private String _filesDir;
+    private String _keysDir;
     SSLSocket _currentConnectionSocket;
     private char[] _keyStorePass = "changeit".toCharArray();
     private HashMap<Path, FileInfo> _files = new HashMap<>();
 
 
-    public Client(String serverHost, int serverPort) {
+    public Client(String serverHost, int serverPort, String filesDir, String keysDir) {
         _serverHost = serverHost;
         _serverPort = serverPort;
+        _filesDir = filesDir;
+        _keysDir = keysDir;
     }
 
     public void interactive() {
@@ -46,6 +52,10 @@ public class Client {
                             _currentConnectionSocket.close();
                         }
                         break;
+                    } else if (Pattern.matches("^register$", command)) {
+                        parseRegister(scanner, os, is);
+                    } else if (Pattern.matches("^login$", command)) {
+                        parseLogin(scanner, os, is);
                     } else if(Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
                     } else if(Pattern.matches("^edit file$", command)) {
@@ -54,21 +64,100 @@ public class Client {
 
 
             }
-        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException e) {
+        } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException | ClassNotFoundException e) {
             e.printStackTrace();
         }
         scanner.close();
 
     }
+    public void parseLogin(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
+
+        System.out.println("Please enter your username");
+        String username = scanner.nextLine().trim();
+        _username = username;
+        System.out.println("Please enter your password");
+        String password = scanner.nextLine().trim();
+
+        login(username, password, os, is);
+    }
+
+    public void login(String username, String password, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "LoginUser");
+        request.addProperty("username", username);
+        request.addProperty("password", password);
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        String line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        System.out.println("Result: " + reply.get("response").getAsString());
+    }
+
+    public void parseRegister(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+        System.out.println("Please enter your username");
+        String username = scanner.nextLine().trim();
+        System.out.println("Please enter your password");
+        String pw1 = scanner.nextLine().trim();
+        System.out.println("Please re-enter your password to confirm");
+        String pw2 = scanner.nextLine().trim();
+        if (!pw1.equals(pw2)) {
+            System.out.println("Passwords don't match");
+        }
+        else {
+            register(username, pw1, os, is);
+        }
+    }
+
+    public void register(String username, String password, ObjectOutputStream os, ObjectInputStream is) throws KeyStoreException, IOException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "RegisterUser");
+        request.addProperty("username", username);
+        request.addProperty("password", password);
+
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+
+        final Certificate cert = ks.getCertificate("client");
+
+        request.addProperty("cert", Base64.getEncoder().encodeToString(cert.getEncoded()));
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        String line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+
+        JsonObject replyJson = JsonParser.parseString(line).getAsJsonObject();
+
+        String reply = replyJson.get("response").getAsString().split(":")[0];
+
+        if (reply.equals("OK")) {
+            _username = username;
+            System.out.println("Result: " + replyJson.get("response").getAsString());
+            System.out.println("Register Successful");
+        }
+        else {
+            System.out.println("Result: " + replyJson.get("response").getAsString());
+            System.out.println("Register Unsuccessful");
+        }
+    }
 
 
     public void parseCreateFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
-        System.out.print("Please enter file path (from the files directory): ");
+        System.out.print("Please enter file path (from the " + _filesDir + " directory): ");
         String path = scanner.nextLine().trim();
         System.out.println("Filename: " + path);
         try {
             createFile(path, os, is);
-        }catch (InvalidPathException | MessageNotAckedException e) {
+        }catch (InvalidPathException | MessageNotAckedException | InvalidUsernameException e) {
             System.out.println(e.getMessage());
         } catch (IOException | ClassNotFoundException | IllegalBlockSizeException | InvalidKeyException | BadPaddingException | NoSuchPaddingException | CertificateException | KeyStoreException | UnrecoverableKeyException e) {
             e.printStackTrace();
@@ -77,10 +166,14 @@ public class Client {
     }
 
     /* Types to be better thought out */
-    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException {
+    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException, InvalidUsernameException {
 
-        Path filePath = FileSystems.getDefault().getPath("files", path);
-        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
+
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
 
         if(relativeFilePath.startsWith("sharedFiles")) {
             throw new InvalidPathException("Can't create a file in the sharedFilesFolder");
@@ -128,14 +221,18 @@ public class Client {
 
         try {
             editFile(path, os, is);
-        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException e) {
+        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException | InvalidUsernameException e) {
             e.printStackTrace();
         }
     }
 
-    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException, MessageNotAckedException {
-        Path filePath = FileSystems.getDefault().getPath("files", path);
-        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
+    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException, MessageNotAckedException, InvalidUsernameException {
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
+
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
 
         if(!_files.containsKey(relativeFilePath)) {
             throw new InvalidPathException("File does not exist");
@@ -229,8 +326,6 @@ public class Client {
 
     public void deleteFile(String path) {}
 
-    public void login(/*...*/) {}
-
     private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "Exit");
@@ -245,12 +340,12 @@ public class Client {
         KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
         KeyStore ks = KeyStore.getInstance("PKCS12");
 
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
         kmf.init(ks, _keyStorePass);
 
 
         KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-        ksTrust.load(new FileInputStream("keys/client.truststore.pk12"), _keyStorePass);
+        ksTrust.load(new FileInputStream(_keysDir + "/client.truststore.pk12"), _keyStorePass);
         TrustManagerFactory tm = TrustManagerFactory.getInstance("SunX509");
         tm.init(ksTrust);
         SSLContext sslContext = SSLContext.getInstance("TLS");
@@ -268,7 +363,7 @@ public class Client {
 
     private PrivateKey getClientPrivateKey() throws KeyStoreException, IOException, CertificateException, NoSuchAlgorithmException, UnrecoverableKeyException {
         KeyStore ks = KeyStore.getInstance("PKCS12");
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
         return (PrivateKey) ks.getKey("client", _keyStorePass);
     }
 
