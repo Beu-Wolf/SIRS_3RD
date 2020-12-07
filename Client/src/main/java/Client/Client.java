@@ -220,7 +220,7 @@ public class Client {
 
 
     public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to edit (from the files directory): ");
+        System.out.print("Please enter file path to edit (from the " + _filesDir + " directory): ");
         String path = scanner.nextLine().trim();
         System.out.println("Filename: " + path);
 
