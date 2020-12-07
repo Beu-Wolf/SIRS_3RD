@@ -1,5 +1,6 @@
 package sirs.server;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import sirs.server.exceptions.InvalidEditorException;
@@ -80,7 +81,11 @@ class ServerThread extends Thread {
                         break;
                     case "EditFile":
                         reply = parseEditFile(operationJson, is, os);
+                        break;
                     case "GetFile":
+                        break;
+                    case "GetShared":
+                        reply = parseGetShared(operationJson, is, os);
                         break;
                     case "Exit":
                         (reply = JsonParser.parseString("{}").getAsJsonObject()).addProperty("response", "OK");
@@ -93,6 +98,7 @@ class ServerThread extends Thread {
                     assert reply != null;
                     System.out.println("Sending: " + reply);
                     os.writeObject(reply.toString());
+                    os.flush();
                 }
             }
             is.close();
@@ -401,7 +407,7 @@ class ServerThread extends Thread {
             byte[] cipheredKey = Base64.getDecoder().decode(cipheredKeyJson.get("cipheredFileKey").getAsString());
 
             ClientInfo client = _clients.get(username);
-            client.shareFile(sharePath, cipheredKey, _loggedInUser);
+            client.shareFile(path, cipheredKey, _loggedInUser);
 
             _files.get(pathStr).addEditor(client);
 
@@ -412,6 +418,25 @@ class ServerThread extends Thread {
         }
 
         return reply;
+    }
+
+    public JsonObject parseGetShared(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        ClientInfo client = _clients.get(_loggedInUser);
+        JsonObject response = JsonParser.parseString("{}").getAsJsonObject();
+
+        JsonArray fileArray = JsonParser.parseString("[]").getAsJsonArray();
+
+        for (SharedFile f : client.getSharedFiles()) {
+            JsonObject obj = JsonParser.parseString("{}").getAsJsonObject();
+            obj.addProperty("path", f.getPath());
+            obj.addProperty("owner", f.getOwner());
+            obj.addProperty("cipheredKey", Base64.getEncoder().encodeToString(f.getCipheredKey()));
+
+            fileArray.add(obj);
+        }
+
+        response.add("files", fileArray);
+        return response;
     }
 
     public void updateFile(String path, String content) {

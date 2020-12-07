@@ -33,7 +33,7 @@ public class ClientInfo {
 
     public void setUserOnline(boolean status) { _online = status;}
 
-    public void shareFile(Path path, byte[] cipheredKey, String owner) {
+    public void shareFile(String path, byte[] cipheredKey, String owner) {
         _sharedFiles.add(new SharedFile(path, cipheredKey, owner));
     }
 

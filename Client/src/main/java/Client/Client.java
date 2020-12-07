@@ -2,10 +2,13 @@ package Client;
 
 import Client.exceptions.InvalidPathException;
 import Client.exceptions.MessageNotAckedException;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.FileSystems;
@@ -58,12 +61,14 @@ public class Client {
                         parseRegister(scanner, os, is);
                     } else if (Pattern.matches("^login$", command)) {
                         parseLogin(scanner, os, is);
-                    } else if(Pattern.matches("^create file$", command)) {
+                    } else if (Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
-                    } else if(Pattern.matches("^edit file$", command)) {
+                    } else if (Pattern.matches("^edit file$", command)) {
                         parseEditFile(scanner, os, is);
-                    } else if(Pattern.matches("^share file$", command)) {
+                    } else if (Pattern.matches("^share file$", command)) {
                         parseShareFile(scanner, os, is);
+                    } else if (Pattern.matches("^get shared$", command)) {
+                        parseGetShared(scanner, os, is);
                     }
 
 
@@ -317,6 +322,58 @@ public class Client {
         System.out.println("Operation Successful!");
     }
 
+    public void parseGetShared(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.println("Getting shared files...");
+
+        try {
+            getShared(os, is);
+        } /* catch(MessageNotAckedException e) {
+            System.err.println(e.getMessage());
+        } */
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void getShared(ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException, UnrecoverableKeyException, CertificateException, NoSuchAlgorithmException, KeyStoreException, IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException {
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "GetShared");
+
+        os.writeObject(request.toString());
+
+        JsonArray response = JsonParser.parseString((String) is.readObject())
+                .getAsJsonObject().get("files").getAsJsonArray();
+
+        if (response.size() == 0) {
+            System.out.println("No files shared with you.");
+        } else {
+            PrivateKey privateKey = getClientPrivateKey();
+            for (JsonElement e : response) {
+                JsonObject obj = e.getAsJsonObject();
+                String path = obj.get("path").getAsString();
+                String owner = obj.get("owner").getAsString();
+                String cipheredKey = obj.get("cipheredKey").getAsString();
+
+                System.out.println("Got file!");
+                System.out.println("Path: " + path);
+                System.out.println("Owner: " + owner);
+
+                SecretKey key = decipherFileKey(Base64.getDecoder().decode(cipheredKey), privateKey);
+                System.out.println("Key: " + Base64.getEncoder().encodeToString(key.getEncoded()));
+
+                Path p = Paths.get("sharedFiles", owner, path);
+                _files.put(p, new FileInfo(owner, new File(String.valueOf(p)), key));
+            }
+        }
+    }
+
+    private SecretKey decipherFileKey(byte[] cipheredKey, PrivateKey privateKey) throws InvalidKeyException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, NoSuchAlgorithmException {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, privateKey);
+
+        return new SecretKeySpec(cipher.doFinal(cipheredKey), "AES");
+    }
+
     private byte[] cipherFileKey(SecretKey fileKey, PublicKey publicKey)
             throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException,
                    BadPaddingException, IllegalBlockSizeException {
@@ -374,8 +431,6 @@ public class Client {
     public void getFile(String path) {}
 
     public void writeFile(/*...*/) {}
-
-    public void shareFile(/*...*/) {}
 
     public void deleteFile(String path) {}
 

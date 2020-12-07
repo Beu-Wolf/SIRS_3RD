@@ -1,19 +1,17 @@
 package sirs.server;
 
-import java.nio.file.Path;
-
 public class SharedFile {
-    private Path _path;
+    private String _path; /* This is the same path entered by the user who shared the file */
     private byte[] _cipheredKey;
     private String _owner;
 
-    public SharedFile(Path path, byte[] cipheredKey, String owner) {
+    public SharedFile(String path, byte[] cipheredKey, String owner) {
         _path = path;
         _cipheredKey = cipheredKey;
         _owner = owner;
     }
 
-    public Path getPath() {
+    public String getPath() {
         return _path;
     }
 
