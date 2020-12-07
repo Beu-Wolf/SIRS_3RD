@@ -1,6 +1,8 @@
 package Client;
 
 import Client.exceptions.InvalidPathException;
+import Client.exceptions.InvalidUsernameException;
+import Client.exceptions.MessageNotAckedException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -12,20 +14,20 @@ import java.nio.file.Path;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
-import java.util.Arrays;
-import java.util.Base64;
-import java.util.Scanner;
+import java.util.*;
 import java.util.regex.Pattern;
 
 public class Client {
 
-    private String _username = "testUser"; // change this to be defined when registering/logging in
+    private String _username;
     private String _serverHost;
     private int _serverPort;
     private String _filesDir;
     private String _keysDir;
     SSLSocket _currentConnectionSocket;
     private char[] _keyStorePass = "changeit".toCharArray();
+    private HashMap<Path, FileInfo> _files = new HashMap<>();
+
 
     public Client(String serverHost, int serverPort, String filesDir, String keysDir) {
         _serverHost = serverHost;
@@ -56,6 +58,8 @@ public class Client {
                         parseLogin(scanner, os, is);
                     } else if(Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
+                    } else if(Pattern.matches("^edit file$", command)) {
+                        parseEditFile(scanner, os, is);
                     }
 
 
@@ -70,6 +74,7 @@ public class Client {
 
         System.out.println("Please enter your username");
         String username = scanner.nextLine().trim();
+        _username = username;
         System.out.println("Please enter your password");
         String password = scanner.nextLine().trim();
 
@@ -147,12 +152,12 @@ public class Client {
 
 
     public void parseCreateFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
-        System.out.print("Please enter file path (from the files directory): ");
+        System.out.print("Please enter file path (from the " + _filesDir + " directory): ");
         String path = scanner.nextLine().trim();
         System.out.println("Filename: " + path);
         try {
             createFile(path, os, is);
-        }catch (InvalidPathException e) {
+        }catch (InvalidPathException | MessageNotAckedException | InvalidUsernameException e) {
             System.out.println(e.getMessage());
         } catch (IOException | ClassNotFoundException | IllegalBlockSizeException | InvalidKeyException | BadPaddingException | NoSuchPaddingException | CertificateException | KeyStoreException | UnrecoverableKeyException e) {
             e.printStackTrace();
@@ -161,7 +166,11 @@ public class Client {
     }
 
     /* Types to be better thought out */
-    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException {
+    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException, InvalidUsernameException {
+
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
 
         Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
         Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
@@ -175,60 +184,119 @@ public class Client {
         keyGen.init(256); // for example
         SecretKey secretKey = keyGen.generateKey();
 
+        _files.put(relativeFilePath, new FileInfo(_username, new File(String.valueOf(filePath)), secretKey));
+
         // Construct JSON request
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "CreateFile");
         request.addProperty("username", _username);
-        request.addProperty("path", path);
-
-
-        // Compute signature of file
-        FileInputStream fis = new FileInputStream(String.valueOf(filePath));
-        request.addProperty("signature", Base64.getEncoder().encodeToString(computeFileSignature(fis)));
-        fis.close();
+        request.addProperty("path", relativeFilePath.toString());
 
         System.out.println(request.toString());
         os.writeObject(request.toString());
 
-        Cipher fileCipher = getFileCipher(secretKey);
+        // Wait for ACK
+        ackMessage(is);
+
+        byte[] fileSignature = sendFileToServer(os, filePath, secretKey);
+
+        ackMessage(is);
+
+        request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("signature", Base64.getEncoder().encodeToString(fileSignature));
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        ackMessage(is);
+        System.out.println("Operation Successful");
+    }
+
+
+
+    public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to edit (from the " + _filesDir + " directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.println("Filename: " + path);
+
+        try {
+            editFile(path, os, is);
+        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException | InvalidUsernameException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException, MessageNotAckedException, InvalidUsernameException {
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
+
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
+
+        if(!_files.containsKey(relativeFilePath)) {
+            throw new InvalidPathException("File does not exist");
+        }
+
+        SecretKey fileSecretKey = _files.get(relativeFilePath).getFileSymKey();
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "EditFile");
+        request.addProperty("username", _username);
+
+
+        // Remove the sharedFiles directory for path (server does not care about it)
+        if(relativeFilePath.startsWith("sharedFiles")) {
+            relativeFilePath = relativeFilePath.subpath(1, relativeFilePath.getNameCount());
+            request.addProperty("ownerEdit", false);
+        } else {
+            request.addProperty("ownerEdit", true);
+        }
+        request.addProperty("path", relativeFilePath.toString());
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        ackMessage(is);
+
+        byte[] newFileSignature = sendFileToServer(os, filePath, fileSecretKey);
+
+        ackMessage(is);
+
+        request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("signature", Base64.getEncoder().encodeToString(newFileSignature));
+
+        System.out.println(request.toString());
+        os.writeObject(request.toString());
+
+        ackMessage(is);
+        System.out.println("Operation Successful");
+    }
+
+    // Sends file to server and returns the created signature
+    private byte[] sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException, CertificateException, KeyStoreException, UnrecoverableKeyException {
+        FileInputStream fis;
+        Cipher fileCipher = getFileCipher(fileSecretKey);
+        MessageDigest messageDigest = getMessageDigest();
 
         // Send file 8k bytes at a time
         fis = new FileInputStream(String.valueOf(filePath));
-        CipherInputStream cin  = new CipherInputStream(fis, fileCipher);
+        try (CipherInputStream cin = new CipherInputStream(fis, fileCipher)) {
 
-        byte[] fileChunk = new byte[8*1024];
-        int bytesRead;
+            byte[] fileChunk = new byte[8 * 1024];
+            int bytesRead;
 
-        while((bytesRead = cin.read(fileChunk)) >= 0) {
-            os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+            while ((bytesRead = cin.read(fileChunk)) >= 0) {
+                messageDigest.update(fileChunk, 0, bytesRead);
+                os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+                os.flush();
+            }
+            os.writeObject(Base64.getDecoder().decode("FileDone"));
             os.flush();
         }
-        os.writeObject(Base64.getDecoder().decode("FileDone"));
-        os.flush();
-        cin.close();
 
-        
-        String line;
-        System.out.println("Waiting");
-        line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
-
-        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-        System.out.println("Result: " + reply.get("response").getAsString());
-
-    }
-
-    private byte[] computeFileSignature(FileInputStream fis) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        // returns signature of sent file
         // Compute checksum of this File and cipher with Private Key
-        MessageDigest messageDigest = getMessageDigest();
-        byte[] fileChunk = new byte[8*1024];
-        int count = 0;
-        while ((count = fis.read(fileChunk)) != -1) {
-            messageDigest.update(fileChunk, 0, count);
-        }
-
-        // Cipher with client's Private Key
         PrivateKey clientPrivateKey = getClientPrivateKey();
         return cipherHash(messageDigest.digest(), clientPrivateKey);
     }
@@ -299,36 +367,17 @@ public class Client {
         return (PrivateKey) ks.getKey("client", _keyStorePass);
     }
 
-    // How to create the socket to communicate with the Server
-    /*
-    char[] pass = "changeit".toCharArray();
+    private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
 
-    KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
-    KeyStore ks = KeyStore.getInstance("PKCS12");
-
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), pass);
-        kmf.init(ks, pass);
-
-
-    KeyStore ksTrust = KeyStore.getInstance("PKCS12");
-        ksTrust.load(new FileInputStream("keys/client.truststore.pk12"), pass);
-    TrustManagerFactory tm = TrustManagerFactory.getInstance("SunX509");
-        tm.init(ksTrust);
-    SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(kmf.getKeyManagers(), tm.getTrustManagers(), null);
-
-
-
-        SSLSocket socket = (SSLSocket) sslContext.getSocketFactory().createSocket("localhost", 10000)
-        String[] protocols = new String[] {"TLSv1.3"};
-        String[] cipherSuites = new String[] {"TLS_AES_128_GCM_SHA256"};
-
-        socket.setEnabledProtocols(protocols);
-        socket.setEnabledCipherSuites(cipherSuites);
-
-        socket.startHandshake();
-        */
-
-
+        System.out.println("Received:" + line);
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        if (!reply.get("response").getAsString().equals("OK")) {
+            throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
+        }
+        return true;
+    }
 
 }
