@@ -313,6 +313,8 @@ public class Client {
         cipheredKeyJson.addProperty("cipheredFileKey", encodedCipheredKey);
 
         os.writeObject(cipheredKeyJson.toString());
+        ackMessage(is);
+        System.out.println("Operation Successful!");
     }
 
     private byte[] cipherFileKey(SecretKey fileKey, PublicKey publicKey)
