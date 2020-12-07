@@ -35,7 +35,7 @@ public class Client {
     }
 
     public void interactive() {
-        Scanner scanner = new Scanner(System.in);
+        Console clientConsole = System.console();
         try {
             connectToServer();
             ObjectOutputStream os = new ObjectOutputStream(_currentConnectionSocket.getOutputStream());
@@ -43,7 +43,7 @@ public class Client {
             while(true) {
                 System.out.print("> ");
 
-                    String command = scanner.nextLine().trim();
+                    String command = clientConsole.readLine().trim();
                     if (Pattern.matches("^exit$", command)) {
                         parseExit(os, is);
                         if(_currentConnectionSocket != null) {
@@ -51,11 +51,11 @@ public class Client {
                         }
                         break;
                     } else if (Pattern.matches("^register$", command)) {
-                        parseRegister(scanner, os, is);
+                        parseRegister(clientConsole, os, is);
                     } else if (Pattern.matches("^login$", command)) {
-                        parseLogin(scanner, os, is);
+                        parseLogin(clientConsole, os, is);
                     } else if(Pattern.matches("^create file$", command)) {
-                        parseCreateFile(scanner, os, is);
+                        parseCreateFile(clientConsole, os, is);
                     }
 
 
@@ -63,15 +63,14 @@ public class Client {
         } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException | ClassNotFoundException e) {
             e.printStackTrace();
         }
-        scanner.close();
 
     }
-    public void parseLogin(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
+    public void parseLogin(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
-        System.out.println("Please enter your username");
-        String username = scanner.nextLine().trim();
-        System.out.println("Please enter your password");
-        String password = scanner.nextLine().trim();
+        System.out.print("Please enter your username: ");
+        String username = clientConsole.readLine().trim();
+        System.out.print("Please enter your password: ");
+        String password = String.valueOf(clientConsole.readPassword());
 
         login(username, password, os, is);
     }
@@ -94,13 +93,13 @@ public class Client {
         System.out.println("Result: " + reply.get("response").getAsString());
     }
 
-    public void parseRegister(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
-        System.out.println("Please enter your username");
-        String username = scanner.nextLine().trim();
-        System.out.println("Please enter your password");
-        String pw1 = scanner.nextLine().trim();
-        System.out.println("Please re-enter your password to confirm");
-        String pw2 = scanner.nextLine().trim();
+    public void parseRegister(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+        System.out.print("Please enter your username: ");
+        String username = clientConsole.readLine().trim();
+        System.out.print("Please enter your password: ");
+        String pw1 = String.valueOf(clientConsole.readPassword());
+        System.out.print("Please re-enter your password to confirm: ");
+        String pw2 = String.valueOf(clientConsole.readPassword());
         if (!pw1.equals(pw2)) {
             System.out.println("Passwords don't match");
         }
@@ -146,9 +145,9 @@ public class Client {
     }
 
 
-    public void parseCreateFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
+    public void parseCreateFile(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
         System.out.print("Please enter file path (from the files directory): ");
-        String path = scanner.nextLine().trim();
+        String path = clientConsole.readLine().trim();
         System.out.println("Filename: " + path);
         try {
             createFile(path, os, is);
