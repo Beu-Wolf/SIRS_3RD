@@ -3,10 +3,7 @@ package sirs.server;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import sirs.server.exceptions.InvalidEditorException;
-import sirs.server.exceptions.InvalidHashException;
-import sirs.server.exceptions.MissingFileException;
-import sirs.server.exceptions.NoClientException;
+import sirs.server.exceptions.*;
 
 import javax.crypto.*;
 import javax.net.ssl.*;
@@ -83,6 +80,7 @@ class ServerThread extends Thread {
                         reply = parseEditFile(operationJson, is, os);
                         break;
                     case "GetFile":
+                        reply = parseGetFile(operationJson, is, os);
                         break;
                     case "GetShared":
                         reply = parseGetShared(operationJson, is, os);
@@ -418,6 +416,41 @@ class ServerThread extends Thread {
         return reply;
     }
 
+    public JsonObject parseGetFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        ClientInfo client = _clients.get(_loggedInUser);
+        JsonObject response = JsonParser.parseString("{}").getAsJsonObject();
+
+        try {
+            String requestPath = request.get("path").getAsString();
+
+            Path p;
+            if (request.get("ownerGet").getAsBoolean()) {
+                requestPath = Paths.get(_loggedInUser, requestPath).toString();
+            }
+            p = Paths.get(System.getProperty("user.dir"), filesRootFolder, requestPath).normalize();
+
+            String path = String.valueOf(p);
+            if (!_files.containsKey(path)) {
+                throw new MissingFileException(requestPath);
+            }
+
+            FileInfo file = _files.get(path);
+
+            if (!file.containsEditor(client)) {
+                throw new NoPermissionException(_loggedInUser, requestPath);
+            }
+
+            sendAck(os);
+
+            response.addProperty("response", "OK");
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.addProperty("response", "NOK: " + e.getMessage());
+        }
+
+        return response;
+    }
+
     public JsonObject parseGetShared(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
         ClientInfo client = _clients.get(_loggedInUser);
         JsonObject response = JsonParser.parseString("{}").getAsJsonObject();
@@ -447,11 +480,6 @@ class ServerThread extends Thread {
                 e.printStackTrace();
             }
         }
-    }
-
-    public void getFile(String path, String username) {
-        // Verify if has access to file
-        // Send file
     }
 
     public void sendFileToBackup(FileInfo fo) {

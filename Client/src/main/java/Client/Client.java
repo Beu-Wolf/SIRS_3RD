@@ -64,6 +64,8 @@ public class Client {
                         parseLogin(scanner, os, is);
                     } else if (Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
+                    } else if (Pattern.matches("^get file$", command)) {
+                        parseGetFile(scanner, os, is);
                     } else if (Pattern.matches("^edit file$", command)) {
                         parseEditFile(scanner, os, is);
                     } else if (Pattern.matches("^share file$", command)) {
@@ -222,7 +224,41 @@ public class Client {
         System.out.println("Operation Successful");
     }
 
+    public void parseGetFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to get (from the " + _filesDir + " directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.println("Filename: " + path);
 
+        try {
+            getFile(path, os, is);
+        } catch(MessageNotAckedException e) {
+            System.err.println(e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void getFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, MessageNotAckedException, ClassNotFoundException {
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "GetFile");
+
+        Path filePath = Paths.get(_filesDir, path);
+        Path relativeFilePath = Paths.get(_filesDir).relativize(filePath);
+
+        if (relativeFilePath.startsWith("sharedFiles")) {
+            request.addProperty("ownerGet", false);
+            relativeFilePath = relativeFilePath.subpath(1, relativeFilePath.getNameCount());
+        } else {
+            request.addProperty("ownerGet", true);
+        }
+        request.addProperty("path", relativeFilePath.toString());
+
+        os.writeObject(request.toString());
+        ackMessage(is);
+
+        ackMessage(is);
+        System.out.println("Operation Successful");
+    }
 
     public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
         System.out.print("Please enter file path to edit (from the " + _filesDir + " directory): ");
