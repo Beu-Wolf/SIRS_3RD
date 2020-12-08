@@ -12,9 +12,7 @@ import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
@@ -238,26 +236,60 @@ public class Client {
         }
     }
 
-    public void getFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, MessageNotAckedException, ClassNotFoundException {
+    public void getFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, MessageNotAckedException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException {
+        System.out.println("Downloading " + path + "...");
+
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "GetFile");
 
         Path filePath = Paths.get(_filesDir, path);
         Path relativeFilePath = Paths.get(_filesDir).relativize(filePath);
 
-        if (relativeFilePath.startsWith("sharedFiles")) {
+        Path requestPath = Paths.get(relativeFilePath.toString());
+        if (requestPath.startsWith("sharedFiles")) {
             request.addProperty("ownerGet", false);
-            relativeFilePath = relativeFilePath.subpath(1, relativeFilePath.getNameCount());
+            requestPath = requestPath.subpath(1, requestPath.getNameCount());
         } else {
             request.addProperty("ownerGet", true);
         }
-        request.addProperty("path", relativeFilePath.toString());
+        request.addProperty("path", requestPath.toString());
 
         os.writeObject(request.toString());
         ackMessage(is);
 
+        Path tempFilePath = Paths.get(filePath.getParent().toString(), filePath.getFileName() + "_TMP");
+
+        Files.createDirectories(tempFilePath.getParent());
+        File tempFile = new File(tempFilePath.toString());
+
+        tempFile.createNewFile();
+
+        download(tempFile, is, _files.get(relativeFilePath).getFileSymKey());
+
+        Files.copy(tempFilePath, filePath, StandardCopyOption.REPLACE_EXISTING);
+        tempFile.delete();
+
         ackMessage(is);
         System.out.println("Operation Successful");
+    }
+
+    public void download(File file, ObjectInputStream is, SecretKey key) throws IOException, ClassNotFoundException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException {
+        byte[] chunk;
+        boolean finished = false;
+        while (!finished) {
+            chunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(chunk).equals("FileDone")) {
+                finished = true;
+            } else {
+                Files.write(file.toPath(), decryptChunk(chunk, key), StandardOpenOption.APPEND);
+            }
+        }
+    }
+
+    public byte[] decryptChunk(byte[] chunk, SecretKey key) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, key);
+        return cipher.doFinal(chunk);
     }
 
     public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {

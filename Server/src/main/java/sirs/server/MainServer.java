@@ -442,6 +442,9 @@ class ServerThread extends Thread {
 
             sendAck(os);
 
+            /* TODO: Signature Validation and Backup? */
+            sendFile(file.getFile(), os);
+
             response.addProperty("response", "OK");
         } catch (Exception e) {
             e.printStackTrace();
@@ -449,6 +452,19 @@ class ServerThread extends Thread {
         }
 
         return response;
+    }
+
+    public void sendFile(File file, ObjectOutputStream os) throws IOException {
+        FileInputStream fis = new FileInputStream(file.getPath());
+
+        byte[] chunk = new byte[8 * 1024];
+        int bytesRead;
+        while ((bytesRead = fis.read(chunk)) >= 0) {
+            os.writeObject(Arrays.copyOfRange(chunk, 0, bytesRead));
+            os.flush();
+        }
+        os.writeObject(Base64.getDecoder().decode("FileDone"));
+        os.flush();
     }
 
     public JsonObject parseGetShared(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
