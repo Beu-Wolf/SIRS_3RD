@@ -380,7 +380,7 @@ class ServerThread extends Thread {
     }
 
     public JsonObject parseRecoverFile(JsonObject request, ObjectOutputStream os) {
-        JsonObject reply;
+        /*JsonObject reply;
         try {
             String username = request.get("username").getAsString();
 
@@ -423,8 +423,6 @@ class ServerThread extends Thread {
                 throw new BackupException("Could not get file from backup");
             }
 
-            // TODO: Verify signature
-
             // Send file to client
             JsonObject confirmation = JsonParser.parseString("{}").getAsJsonObject();
             confirmation.addProperty("response",  "SendingFile");
@@ -440,7 +438,8 @@ class ServerThread extends Thread {
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
             return reply;
-        }
+        } */
+        return null;
     }
 
     private JsonObject receiveFileFromBackup(Path filePath, FileInfo fi) throws IOException, ClassNotFoundException, NoSuchAlgorithmException {

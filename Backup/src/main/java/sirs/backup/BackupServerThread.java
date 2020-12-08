@@ -105,7 +105,7 @@ public class BackupServerThread extends Thread {
 
     /* Gives back the file to the requesting server */
     private JsonObject parseRestoreFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
-        JsonObject reply;
+        /*JsonObject reply;
         try {
             // get wanted file (last file)
             BackupFileInfo latestFile;
@@ -132,7 +132,8 @@ public class BackupServerThread extends Thread {
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK" + e.getMessage());
             return reply;
-        }
+        }*/
+        return null;
     }
 
     private void receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {

@@ -318,7 +318,7 @@ public class Client {
     }
 
     private void recoverFile(String path, ObjectOutputStream os, ObjectInputStream is) throws InvalidPathException, IOException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException, RecoverException {
-        Path filePath = FileSystems.getDefault().getPath("files", path);
+        /*Path filePath = FileSystems.getDefault().getPath("files", path);
         Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
 
         if(!_files.containsKey(relativeFilePath)) {
@@ -351,6 +351,7 @@ public class Client {
         if (!serverResponse.get("response").getAsString().equals("SendingFile")) {
             // someting went wrong
             throw new RecoverException("Could not recover file");
+
         }
 
 
@@ -364,7 +365,8 @@ public class Client {
         System.out.println("Received:" + line);
 
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-        System.out.println("Result: " + reply.get("response").getAsString());
+        System.out.println("Result: " + reply.get("response").getAsString()); */
+        System.out.println("Not yet done");
 
     }
 
