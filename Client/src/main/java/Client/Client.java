@@ -413,7 +413,7 @@ public class Client {
         }
     }
 
-    public void getShared(ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException, UnrecoverableKeyException, CertificateException, NoSuchAlgorithmException, KeyStoreException, IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException {
+    public void getShared(ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException, UnrecoverableKeyException, CertificateException, NoSuchAlgorithmException, KeyStoreException, IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException, MessageNotAckedException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "GetShared");
 
@@ -441,6 +441,7 @@ public class Client {
 
                 Path p = Paths.get("sharedFiles", owner, path);
                 _files.put(p, new FileInfo(owner, new File(String.valueOf(p)), key));
+                getFile(p.toString(), os, is);
             }
         }
     }
@@ -505,8 +506,6 @@ public class Client {
         cipher.init(Cipher.ENCRYPT_MODE, clientPrivKey);
         return cipher.doFinal(bytes);
     }
-
-    public void getFile(String path) {}
 
     public void writeFile(/*...*/) {}
 
