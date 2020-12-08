@@ -1,6 +1,7 @@
 package Client;
 
 import Client.exceptions.InvalidPathException;
+import Client.exceptions.InvalidUsernameException;
 import Client.exceptions.MessageNotAckedException;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -24,7 +25,7 @@ import java.util.regex.Pattern;
 
 public class Client {
 
-    private String _username = "testUser"; // change this to be defined when registering/logging in
+    private String _username;
     private String _serverHost;
     private int _serverPort;
     private String _filesDir;
@@ -83,6 +84,7 @@ public class Client {
 
         System.out.println("Please enter your username");
         String username = scanner.nextLine().trim();
+        _username = username;
         System.out.println("Please enter your password");
         String password = scanner.nextLine().trim();
 
@@ -160,12 +162,12 @@ public class Client {
 
 
     public void parseCreateFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
-        System.out.print("Please enter file path (from the files directory): ");
+        System.out.print("Please enter file path (from the " + _filesDir + " directory): ");
         String path = scanner.nextLine().trim();
         System.out.println("Filename: " + path);
         try {
             createFile(path, os, is);
-        }catch (InvalidPathException | MessageNotAckedException e) {
+        }catch (InvalidPathException | MessageNotAckedException | InvalidUsernameException e) {
             System.out.println(e.getMessage());
         } catch (IOException | ClassNotFoundException | IllegalBlockSizeException | InvalidKeyException | BadPaddingException | NoSuchPaddingException | CertificateException | KeyStoreException | UnrecoverableKeyException e) {
             e.printStackTrace();
@@ -174,7 +176,11 @@ public class Client {
     }
 
     /* Types to be better thought out */
-    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException {
+    public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException, InvalidUsernameException {
+
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
 
         Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
         Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
@@ -219,20 +225,24 @@ public class Client {
 
 
     public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to edit (from the files directory): ");
+        System.out.print("Please enter file path to edit (from the " + _filesDir + " directory): ");
         String path = scanner.nextLine().trim();
         System.out.println("Filename: " + path);
 
         try {
             editFile(path, os, is);
-        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException e) {
+        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException | InvalidUsernameException e) {
             e.printStackTrace();
         }
     }
 
-    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException, MessageNotAckedException {
-        Path filePath = FileSystems.getDefault().getPath("files", path);
-        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
+    public void editFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, CertificateException, UnrecoverableKeyException, NoSuchAlgorithmException, KeyStoreException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, InvalidKeyException, InvalidPathException, ClassNotFoundException, MessageNotAckedException, InvalidUsernameException {
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
+
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
 
         if(!_files.containsKey(relativeFilePath)) {
             throw new InvalidPathException("File does not exist");

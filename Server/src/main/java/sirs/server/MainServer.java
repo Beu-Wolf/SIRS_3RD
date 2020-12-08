@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import sirs.server.exceptions.InvalidEditorException;
+import sirs.server.exceptions.InvalidHashException;
 import sirs.server.exceptions.MissingFileException;
 import sirs.server.exceptions.NoClientException;
 
@@ -44,7 +45,6 @@ class ServerThread extends Thread {
         _files = files;
         _password = password;
         _socket = socket;
-        _clients.put("testUser", new ClientInfo(null, "testUser", null));
         _backupSocketFactory = backupSocketFactory;
     }
 
@@ -220,8 +220,8 @@ class ServerThread extends Thread {
             file.createNewFile();
             new FileOutputStream(file).close(); // Clean file
 
-            byte[] computedSignature = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedSignature));
+            byte[] computedHash = receiveFileFromSocket(file, is);
+            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
@@ -234,11 +234,11 @@ class ServerThread extends Thread {
             String fileSignature = request.get("signature").getAsString();
             byte[] signature = Base64.getDecoder().decode(fileSignature);
 
-            //signature = decipherHash(signature, _clients.get(username).getPublicKey());
+            byte[] fileHash = decipherHash(signature, _clients.get(username).getPublicKey());
 
-            /*if (!Arrays.equals(computedSignature, signature)) {
-                throw new exception
-            }*/
+            if (!Arrays.equals(computedHash, fileHash)) {
+                throw new InvalidHashException("File Signatures do not match");
+            }
 
             createNewFile(tempFilePath, newFilePath, _clients.get(username), signature);
 
@@ -247,7 +247,7 @@ class ServerThread extends Thread {
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | ClassNotFoundException | NoClientException | NoSuchAlgorithmException e) {
+        } catch (IOException | ClassNotFoundException | NoClientException | NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException | InvalidHashException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -308,8 +308,8 @@ class ServerThread extends Thread {
             file.createNewFile();
             new FileOutputStream(file).close(); // Clean file
 
-            byte[] computedSignature = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedSignature));
+            byte[] computedHash = receiveFileFromSocket(file, is);
+            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
@@ -322,13 +322,11 @@ class ServerThread extends Thread {
             String fileSignature = request.get("signature").getAsString();
             byte[] signature = Base64.getDecoder().decode(fileSignature);
 
-            //signature = decipherHash(signature, _clients.get(username).getPublicKey());
+            byte[] fileHash = decipherHash(signature, _clients.get(username).getPublicKey());
 
-            /*if (!Arrays.equals(computedSignature, signature)) {
-                throw new exception
-            }*/
-
-            // TODO: Change to receive small number of bytes each time
+            if (!Arrays.equals(computedHash, fileHash)) {
+                throw new InvalidHashException("File signatures do not match!");
+            }
 
             // Clean File
             editFile(tempFilePath, fi, signature);
@@ -338,7 +336,7 @@ class ServerThread extends Thread {
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | NoSuchAlgorithmException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | NoSuchAlgorithmException | InvalidHashException | NoSuchPaddingException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
