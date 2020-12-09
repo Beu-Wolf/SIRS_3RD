@@ -86,8 +86,6 @@ public class BackupServerThread extends Thread {
 
             receiveFileFromSocket(file, is);
 
-            sendAck(os);
-
             _files.put(request.get("path").getAsString(), new BackupFileInfo(file, request.get("lastEditor").getAsString(), signature));
 
             reply = JsonParser.parseString("{}").getAsJsonObject();
