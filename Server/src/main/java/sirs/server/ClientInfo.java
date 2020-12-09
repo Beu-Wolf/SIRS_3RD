@@ -3,7 +3,7 @@ package sirs.server;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
 
-public class ClientInfo {
+public class ClientInfo implements java.io.Serializable {
     private Certificate _certificate;
     private String _username;
     private String _password;

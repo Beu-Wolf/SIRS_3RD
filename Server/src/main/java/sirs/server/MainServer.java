@@ -31,7 +31,6 @@ class ServerThread extends Thread {
 
     private ConcurrentHashMap<String, ClientInfo> _clients;
     private List<FileInfo> _files;
-    private boolean _online = false;
 
     private char[] _password;
     private SSLSocket _socket;
@@ -466,8 +465,6 @@ public class MainServer {
 
     }
 
-
-    
     public void start() {
         SSLServerSocketFactory ssl = getServerSocketFactory();
         SSLSocketFactory backupSocketFactory = getBackupSocketFactory();
@@ -490,9 +487,11 @@ public class MainServer {
         } catch (IOException e) {
             e.printStackTrace();
         }
-
-
     }
+
+    public ConcurrentHashMap<String, ClientInfo> getClients() { return  _clients;}
+
+    public List<FileInfo> getFileInfo() { return _files; }
 
     private SSLServerSocketFactory getServerSocketFactory() {
         SSLServerSocketFactory ssf;

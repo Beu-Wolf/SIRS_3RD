@@ -3,7 +3,7 @@ package sirs.server;
 import java.io.File;
 import java.util.ArrayList;
 
-public class FileInfo {
+public class FileInfo implements java.io.Serializable {
     private File _file;
     private int _currentVersion = 1;
     private ClientInfo _owner;
