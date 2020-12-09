@@ -229,14 +229,18 @@ public class Client {
 
         try {
             getFile(path, os, is);
-        } catch(MessageNotAckedException e) {
+        } catch(MessageNotAckedException | InvalidUsernameException e) {
             System.err.println(e.getMessage());
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public void getFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, MessageNotAckedException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException {
+    public void getFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, MessageNotAckedException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException, InvalidUsernameException {
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
+
         System.out.println("Downloading " + path + "...");
 
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
@@ -306,7 +310,9 @@ public class Client {
 
         try {
             editFile(path, os, is);
-        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException | MessageNotAckedException | InvalidUsernameException e) {
+        } catch (MessageNotAckedException | InvalidUsernameException e){
+            System.err.println(e.getMessage());
+        } catch (InvalidKeyException | KeyStoreException | CertificateException | NoSuchAlgorithmException | InvalidPathException | IOException | NoSuchPaddingException | BadPaddingException | IllegalBlockSizeException | UnrecoverableKeyException | ClassNotFoundException e) {
             e.printStackTrace();
         }
     }
@@ -365,7 +371,7 @@ public class Client {
 
         try {
             shareFile(path, username, os, is);
-        } catch(MessageNotAckedException | InvalidPathException e) {
+        } catch(MessageNotAckedException | InvalidPathException | InvalidUsernameException e) {
             System.err.println(e.getMessage());
         }
         catch (Exception e) {
@@ -375,10 +381,14 @@ public class Client {
 
     public void shareFile(String path, String username, ObjectOutputStream os, ObjectInputStream is)
             throws IOException, MessageNotAckedException, ClassNotFoundException, NoSuchAlgorithmException,
-            InvalidKeySpecException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, InvalidPathException {
+            InvalidKeySpecException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, InvalidPathException, InvalidUsernameException {
 
         Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
         Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
+
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
 
         if (relativeFilePath.startsWith("sharedFiles")) {
             throw new InvalidPathException("Can't share a file in the sharedFiles folder (only the owner can share this file)");
@@ -422,15 +432,20 @@ public class Client {
 
         try {
             getShared(os, is);
-        } /* catch(MessageNotAckedException e) {
+        } catch(MessageNotAckedException | InvalidUsernameException e) {
             System.err.println(e.getMessage());
-        } */
+        }
         catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public void getShared(ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException, UnrecoverableKeyException, CertificateException, NoSuchAlgorithmException, KeyStoreException, IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException, MessageNotAckedException {
+    public void getShared(ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException, UnrecoverableKeyException, CertificateException, NoSuchAlgorithmException, KeyStoreException, IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException, MessageNotAckedException, InvalidUsernameException {
+
+        if(_username == null) {
+            throw new InvalidUsernameException("Not registered or logged in yet!");
+        }
+
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "GetShared");
 
