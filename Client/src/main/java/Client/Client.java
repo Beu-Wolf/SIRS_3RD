@@ -564,7 +564,7 @@ public class Client {
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(kmf.getKeyManagers(), tm.getTrustManagers(), null);
 
-        _currentConnectionSocket = (SSLSocket) sslContext.getSocketFactory().createSocket("localhost", 10000);
+        _currentConnectionSocket = (SSLSocket) sslContext.getSocketFactory().createSocket(_serverHost, _serverPort);
         String[] protocols = new String[] {"TLSv1.3"};
         String[] cipherSuites = new String[] {"TLS_AES_128_GCM_SHA256"};
 
