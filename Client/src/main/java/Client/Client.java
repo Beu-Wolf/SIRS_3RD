@@ -262,11 +262,16 @@ public class Client {
         Files.createDirectories(tempFilePath.getParent());
         File tempFile = new File(tempFilePath.toString());
 
-        tempFile.createNewFile();
+        try {
+            tempFile.createNewFile();
 
-        download(tempFile, is, _files.get(relativeFilePath).getFileSymKey());
+            download(tempFile, is, _files.get(relativeFilePath).getFileSymKey());
 
-        Files.copy(tempFilePath, filePath, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(tempFilePath, filePath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            tempFile.delete();
+            throw e;
+        }
         tempFile.delete();
 
         ackMessage(is);
