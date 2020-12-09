@@ -3,17 +3,21 @@ package Client;
 import Client.exceptions.InvalidPathException;
 import Client.exceptions.InvalidUsernameException;
 import Client.exceptions.MessageNotAckedException;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import javax.crypto.*;
+import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
 import java.io.*;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.security.*;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -56,10 +60,16 @@ public class Client {
                         parseRegister(scanner, os, is);
                     } else if (Pattern.matches("^login$", command)) {
                         parseLogin(scanner, os, is);
-                    } else if(Pattern.matches("^create file$", command)) {
+                    } else if (Pattern.matches("^create file$", command)) {
                         parseCreateFile(scanner, os, is);
-                    } else if(Pattern.matches("^edit file$", command)) {
+                    } else if (Pattern.matches("^get file$", command)) {
+                        parseGetFile(scanner, os, is);
+                    } else if (Pattern.matches("^edit file$", command)) {
                         parseEditFile(scanner, os, is);
+                    } else if (Pattern.matches("^share file$", command)) {
+                        parseShareFile(scanner, os, is);
+                    } else if (Pattern.matches("^get shared$", command)) {
+                        parseGetShared(scanner, os, is);
                     }
 
 
@@ -122,7 +132,7 @@ public class Client {
         request.addProperty("password", password);
 
         KeyStore ks = KeyStore.getInstance("PKCS12");
-        ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
+        ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
 
         final Certificate cert = ks.getCertificate("client");
 
@@ -212,7 +222,80 @@ public class Client {
         System.out.println("Operation Successful");
     }
 
+    public void parseGetFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to get (from the " + _filesDir + " directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.println("Filename: " + path);
 
+        try {
+            getFile(path, os, is);
+        } catch(MessageNotAckedException e) {
+            System.err.println(e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void getFile(String path, ObjectOutputStream os, ObjectInputStream is) throws IOException, MessageNotAckedException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException {
+        System.out.println("Downloading " + path + "...");
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "GetFile");
+
+        Path filePath = Paths.get(_filesDir, path);
+        Path relativeFilePath = Paths.get(_filesDir).relativize(filePath);
+
+        Path requestPath = Paths.get(relativeFilePath.toString());
+        if (requestPath.startsWith("sharedFiles")) {
+            request.addProperty("ownerGet", false);
+            requestPath = requestPath.subpath(1, requestPath.getNameCount());
+        } else {
+            request.addProperty("ownerGet", true);
+        }
+        request.addProperty("path", requestPath.toString());
+
+        os.writeObject(request.toString());
+        ackMessage(is);
+
+        Path tempFilePath = Paths.get(filePath.getParent().toString(), filePath.getFileName() + "_TMP");
+
+        Files.createDirectories(tempFilePath.getParent());
+        File tempFile = new File(tempFilePath.toString());
+
+        try {
+            tempFile.createNewFile();
+
+            download(tempFile, is, _files.get(relativeFilePath).getFileSymKey());
+
+            Files.copy(tempFilePath, filePath, StandardCopyOption.REPLACE_EXISTING);
+        } catch (Exception e) {
+            tempFile.delete();
+            throw e;
+        }
+        tempFile.delete();
+
+        ackMessage(is);
+        System.out.println("Operation Successful");
+    }
+
+    public void download(File file, ObjectInputStream is, SecretKey key) throws IOException, ClassNotFoundException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, NoSuchPaddingException {
+        byte[] chunk;
+        boolean finished = false;
+        while (!finished) {
+            chunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(chunk).equals("FileDone")) {
+                finished = true;
+            } else {
+                Files.write(file.toPath(), decryptChunk(chunk, key), StandardOpenOption.APPEND);
+            }
+        }
+    }
+
+    public byte[] decryptChunk(byte[] chunk, SecretKey key) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE, key);
+        return cipher.doFinal(chunk);
+    }
 
     public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
         System.out.print("Please enter file path to edit (from the " + _filesDir + " directory): ");
@@ -237,7 +320,6 @@ public class Client {
         if(!_files.containsKey(relativeFilePath)) {
             throw new InvalidPathException("File does not exist");
         }
-
         SecretKey fileSecretKey = _files.get(relativeFilePath).getFileSymKey();
 
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
@@ -273,10 +355,132 @@ public class Client {
         System.out.println("Operation Successful");
     }
 
+    public void parseShareFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to share (from the files directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.print("Share with user: ");
+        String username = scanner.nextLine().trim();
+
+        try {
+            shareFile(path, username, os, is);
+        } catch(MessageNotAckedException | InvalidPathException e) {
+            System.err.println(e.getMessage());
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void shareFile(String path, String username, ObjectOutputStream os, ObjectInputStream is)
+            throws IOException, MessageNotAckedException, ClassNotFoundException, NoSuchAlgorithmException,
+            InvalidKeySpecException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, InvalidPathException {
+
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
+
+        if (relativeFilePath.startsWith("sharedFiles")) {
+            throw new InvalidPathException("Can't share a file in the sharedFiles folder (only the owner can share this file)");
+        }
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "ShareFile");
+        request.addProperty("path", path);
+        request.addProperty("username", username);
+
+        os.writeObject(request.toString());
+
+        ackMessage(is);
+
+        String encodedPublicKey = JsonParser.parseString((String) is.readObject())
+                .getAsJsonObject().get("publicKey").getAsString();
+
+        System.out.println("Received public key: " + encodedPublicKey);
+        byte[] publicKeyBytes = Base64.getDecoder().decode(encodedPublicKey);
+        PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+
+        sendAck(os);
+
+        FileInfo fi = _files.get(Paths.get(path));
+        System.out.println("File key: " + Base64.getEncoder().encodeToString(fi.getFileSymKey().getEncoded()));
+
+        byte[] cipheredKey = cipherFileKey(fi.getFileSymKey(), publicKey);
+        String encodedCipheredKey = Base64.getEncoder().encodeToString(cipheredKey);
+        System.out.println("Ciphered file key: " + encodedCipheredKey);
+
+        JsonObject cipheredKeyJson = JsonParser.parseString("{}").getAsJsonObject();
+        cipheredKeyJson.addProperty("cipheredFileKey", encodedCipheredKey);
+
+        os.writeObject(cipheredKeyJson.toString());
+        ackMessage(is);
+        System.out.println("Operation Successful!");
+    }
+
+    public void parseGetShared(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.println("Getting shared files...");
+
+        try {
+            getShared(os, is);
+        } /* catch(MessageNotAckedException e) {
+            System.err.println(e.getMessage());
+        } */
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void getShared(ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException, UnrecoverableKeyException, CertificateException, NoSuchAlgorithmException, KeyStoreException, IllegalBlockSizeException, BadPaddingException, NoSuchPaddingException, InvalidKeyException, MessageNotAckedException {
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "GetShared");
+
+        os.writeObject(request.toString());
+
+        JsonArray response = JsonParser.parseString((String) is.readObject())
+                .getAsJsonObject().get("files").getAsJsonArray();
+
+        if (response.size() == 0) {
+            System.out.println("No files shared with you.");
+        } else {
+            PrivateKey privateKey = getClientPrivateKey();
+            for (JsonElement e : response) {
+                JsonObject obj = e.getAsJsonObject();
+                String path = obj.get("path").getAsString();
+                String owner = obj.get("owner").getAsString();
+                String cipheredKey = obj.get("cipheredKey").getAsString();
+
+                System.out.println("Got file!");
+                System.out.println("Path: " + path);
+                System.out.println("Owner: " + owner);
+
+                SecretKey key = decipherFileKey(Base64.getDecoder().decode(cipheredKey), privateKey);
+                System.out.println("Key: " + Base64.getEncoder().encodeToString(key.getEncoded()));
+
+                Path p = Paths.get("sharedFiles", owner, path);
+                _files.put(p, new FileInfo(owner, new File(String.valueOf(p)), key));
+                getFile(p.toString(), os, is);
+            }
+        }
+    }
+
+    private SecretKey decipherFileKey(byte[] cipheredKey, PrivateKey privateKey) throws InvalidKeyException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, NoSuchAlgorithmException {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.DECRYPT_MODE, privateKey);
+
+        return new SecretKeySpec(cipher.doFinal(cipheredKey), "AES");
+    }
+
+    private byte[] cipherFileKey(SecretKey fileKey, PublicKey publicKey)
+            throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException,
+                   BadPaddingException, IllegalBlockSizeException {
+        Cipher cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, publicKey);
+        return cipher.doFinal(fileKey.getEncoded());
+    }
+
     // Sends file to server and returns the created signature
     private byte[] sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException, CertificateException, KeyStoreException, UnrecoverableKeyException {
         FileInputStream fis;
         Cipher fileCipher = getFileCipher(fileSecretKey);
+
         MessageDigest messageDigest = getMessageDigest();
 
         // Send file 8k bytes at a time
@@ -318,11 +522,7 @@ public class Client {
         return cipher.doFinal(bytes);
     }
 
-    public void getFile(String path) {}
-
     public void writeFile(/*...*/) {}
-
-    public void shareFile(/*...*/) {}
 
     public void deleteFile(String path) {}
 
@@ -365,6 +565,13 @@ public class Client {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
         return (PrivateKey) ks.getKey("client", _keyStorePass);
+    }
+
+    private void sendAck(ObjectOutputStream os) throws IOException {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        reply.addProperty("response", "OK");
+
+        os.writeObject(reply.toString());
     }
 
     private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
