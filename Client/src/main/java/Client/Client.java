@@ -378,8 +378,8 @@ public class Client {
         Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
         Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
 
-        if(relativeFilePath.startsWith("sharedFiles")) {
-            throw new InvalidPathException("Can't share a file in the sharedFilesFolder (only the owner can share this file)");
+        if (relativeFilePath.startsWith("sharedFiles")) {
+            throw new InvalidPathException("Can't share a file in the sharedFiles folder (only the owner can share this file)");
         }
 
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
