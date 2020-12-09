@@ -368,7 +368,15 @@ public class Client {
 
     public void shareFile(String path, String username, ObjectOutputStream os, ObjectInputStream is)
             throws IOException, MessageNotAckedException, ClassNotFoundException, NoSuchAlgorithmException,
-            InvalidKeySpecException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException {
+            InvalidKeySpecException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, InvalidPathException {
+
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
+
+        if(relativeFilePath.startsWith("sharedFiles")) {
+            throw new InvalidPathException("Can't share a file in the sharedFilesFolder (only the owner can share this file)");
+        }
+
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "ShareFile");
         request.addProperty("path", path);
