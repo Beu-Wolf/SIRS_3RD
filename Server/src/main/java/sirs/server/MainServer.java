@@ -84,9 +84,6 @@ class ServerThread extends Thread {
                     case "GetShared":
                         reply = parseGetShared(operationJson, is, os);
                         break;
-                    case "RecoverFile":
-                        reply = parseRecoverFile(operationJson, os);
-                        break;
                     case "Exit":
                         (reply = JsonParser.parseString("{}").getAsJsonObject()).addProperty("response", "OK");
                         exit = true;
@@ -266,7 +263,7 @@ class ServerThread extends Thread {
         String path = String.valueOf(newPath);
         File file = new File(path);
 
-        FileInfo fi = new FileInfo(file, owner, checksum);
+        FileInfo fi = new FileInfo(file, owner, checksum, owner);
         fi.addEditor(owner);
         _files.put(path, fi);
         return fi;
@@ -328,7 +325,7 @@ class ServerThread extends Thread {
                 throw new InvalidHashException("File signatures do not match!");
             }
 
-            editFile(tempFilePath, fi, signature);
+            editFile(tempFilePath, fi, signature, _clients.get(username));
 
             sendFileToBackup(filePath, username, fi, fileSignature);
 
@@ -344,12 +341,13 @@ class ServerThread extends Thread {
         }
     }
 
-    public void editFile(Path tempFilePath, FileInfo fi, byte[] signature) throws IOException {
+    public void editFile(Path tempFilePath, FileInfo fi, byte[] signature, ClientInfo lastEditor) throws IOException {
 
         Files.copy(tempFilePath, fi.getFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
         Files.delete(tempFilePath);
 
         fi.setLatestSignature(signature);
+        fi.setLastEditor(lastEditor);
         fi.updateVersion();
     }
 
@@ -364,7 +362,6 @@ class ServerThread extends Thread {
         JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
         backupRequest.addProperty("operation", "BackupFile");
         backupRequest.addProperty("lastEditor", username);
-        backupRequest.addProperty("version", fi.getCurrentVersion());
         backupRequest.addProperty("signature", fileSignature);
 
         Path backupFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder).relativize(filePath);
@@ -383,6 +380,34 @@ class ServerThread extends Thread {
         bis.close();
         bos.close();
 
+    }
+
+    private void getFileFromBackup(FileInfo tamperedFile) throws IOException, MessageNotAckedException, ClassNotFoundException{
+        SSLSocket connectionToBackup = connectToBackupServer();
+        assert connectionToBackup != null;
+
+        ObjectOutputStream bos = new ObjectOutputStream(connectionToBackup.getOutputStream());
+        ObjectInputStream bis = new ObjectInputStream(connectionToBackup.getInputStream());
+
+        Path backupFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder).relativize(tamperedFile.getFile().toPath());
+
+        JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
+        backupRequest.addProperty("operation", "RecoverFile");
+        backupRequest.addProperty("path", backupFilePath.toString());
+
+        System.out.println(backupRequest.toString());
+        bos.writeObject(backupRequest.toString());
+
+        ackMessage(bis);
+
+        new FileOutputStream(tamperedFile.getFile()).close(); // Clean file
+        // Overwrite existent
+        receiveFileFromBackupSocket(tamperedFile.getFile(), bis);
+
+        sendAck(bos);
+
+        bis.close();
+        bos.close();
     }
 
     public JsonObject parseRecoverFile(JsonObject request, ObjectOutputStream os) {
@@ -448,41 +473,6 @@ class ServerThread extends Thread {
         return null;
     }
 
-    private JsonObject receiveFileFromBackup(Path filePath, FileInfo fi) throws IOException, ClassNotFoundException, NoSuchAlgorithmException {
-        SSLSocket connectionToBackup = connectToBackupServer();
-        assert connectionToBackup != null;
-
-        ObjectOutputStream bos = new ObjectOutputStream(connectionToBackup.getOutputStream());
-        ObjectInputStream bis = new ObjectInputStream(connectionToBackup.getInputStream());
-
-        JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
-        backupRequest.addProperty("operation", "RestoreFile");
-        backupRequest.addProperty("path", filePath.toString());
-
-        System.out.println(backupRequest.toString());
-        bos.writeObject(backupRequest.toString());
-
-        String line = (String) bis.readObject();
-        // Read if successfull
-        System.out.println("Received:" + line);
-
-        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-
-        if (!reply.get("response").getAsString().equals("sendingFile")) {
-            // Someting went wrong, return
-            return reply;
-        }
-
-        receiveFileFromSocket(fi.getFile(), bis);
-
-        line = (String) bis.readObject();
-        // Read if successfull
-        System.out.println("Received:" + line);
-
-        reply = JsonParser.parseString(line).getAsJsonObject();
-
-        return reply;
-    }
 
     public byte[] receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException, NoSuchAlgorithmException {
 
@@ -500,6 +490,19 @@ class ServerThread extends Thread {
             }
         }
         return messageDigest.digest();
+    }
+
+    private void receiveFileFromBackupSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
+        byte[] fileChunk;
+        boolean fileFinish = false;
+        while(!fileFinish) {
+            fileChunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
+                fileFinish = true;
+            } else {
+                Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
+            }
+        }
     }
 
 
@@ -580,7 +583,21 @@ class ServerThread extends Thread {
             sendAck(os);
 
             /* TODO: Signature Validation and Backup? */
+
+            // Verify if file was not tampered with when was in the server (Ransomware)
+            byte[] curFileSignature  = computeFileSignature(new FileInputStream(file.getFile()));
+
+            byte[] fileHash = decipherHash(file.getLatestSignature(), file.getLastEditor().getPublicKey());
+
+            if(!Arrays.equals(curFileSignature, fileHash)) {
+                // Someone tampered with the file, recover it
+                System.out.println("Recovering file!");
+                getFileFromBackup(file);
+            }
+
             sendFile(file.getFile(), os);
+
+            ackMessage(is);
 
             response.addProperty("response", "OK");
         } catch (Exception e) {

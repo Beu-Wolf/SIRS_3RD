@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public class BackupServer {
 
@@ -31,7 +32,7 @@ public class BackupServer {
 
             System.out.println("Running at " + _host + ":" + _port);
 
-            ArrayList<BackupFileInfo> files = new ArrayList<>();
+            HashMap<String, BackupFileInfo> files = new HashMap<>();
 
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();

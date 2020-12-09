@@ -7,17 +7,13 @@ import java.util.Objects;
 public class BackupFileInfo {
 
     private File _file;
-    private String _fileServerPath;
     private String _editor;
     private byte[] _signature;
-    private int _version;
 
-    public BackupFileInfo(File file, String fileServerPath,  String editor, byte[] signature, int version) {
+    public BackupFileInfo(File file,  String editor, byte[] signature) {
         _file = file;
-        _fileServerPath = fileServerPath;
         _editor = editor;
         _signature = signature;
-        _version = version;
     }
 
     public File getFile() {
@@ -30,14 +26,6 @@ public class BackupFileInfo {
 
     public String getEditor() {
         return _editor;
-    }
-
-    public String getFileServerPath() {
-        return _fileServerPath;
-    }
-
-    public int getVersion() {
-        return _version;
     }
 
 }

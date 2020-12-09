@@ -2,6 +2,7 @@ package sirs.backup;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import sirs.backup.exceptions.MessageNotAckedException;
 import sirs.backup.exceptions.MissingFileException;
 
 import java.io.*;
@@ -12,16 +13,16 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 
 public class BackupServerThread extends Thread {
     private Socket _socket;
 
-    private List<BackupFileInfo> _files;
+    private HashMap<String, BackupFileInfo> _files;
     private String filesRootFolder = "files";
 
-    public BackupServerThread(List<BackupFileInfo> files,  Socket socket) {
+    public BackupServerThread(HashMap<String, BackupFileInfo> files,  Socket socket) {
         _files = files;
         _socket = socket;
     }
@@ -44,8 +45,8 @@ public class BackupServerThread extends Thread {
                 case "BackupFile":
                     reply = parseBackupFile(operationJson, is, os);
                     break;
-                case "RestoreFile":
-                    reply = parseRestoreFile(operationJson, is, os);
+                case "RecoverFile":
+                    reply = parseRecoverFile(operationJson, is, os);
                     break;
                 default:
                     throw new IOException("Invalid operation");
@@ -68,8 +69,7 @@ public class BackupServerThread extends Thread {
         JsonObject reply;
         try {
 
-            // File schema = ../files/(same as Server)/filename_version
-            Path filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString() + "_" + request.get("version"));
+            Path filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString());
             System.out.println("FilePath: " + filePath);
 
             // Write file
@@ -88,7 +88,7 @@ public class BackupServerThread extends Thread {
 
             sendAck(os);
 
-            _files.add(new BackupFileInfo(file, request.get("path").getAsString(), request.get("lastEditor").getAsString(), signature, request.get("version").getAsInt()));
+            _files.put(request.get("path").getAsString(), new BackupFileInfo(file, request.get("lastEditor").getAsString(), signature));
 
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
@@ -104,35 +104,24 @@ public class BackupServerThread extends Thread {
     }
 
     /* Gives back the file to the requesting server */
-    private JsonObject parseRestoreFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
-        /*JsonObject reply;
+    private JsonObject parseRecoverFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        JsonObject reply;
         try {
-            // get wanted file (last file)
-            BackupFileInfo latestFile;
-            if (_files.stream().anyMatch(x -> x.getFileServerPath().equals(request.get("path").getAsString()))) {
-                latestFile = _files.stream().filter(x -> x.getFileServerPath().equals(request.get("path").getAsString())).sorted(Comparator.comparingInt(BackupFileInfo::getVersion)).reduce((first, second) -> second).get();
-            } else {
-                throw new MissingFileException("No file to recover!");
-            }
+            String pathstr = request.get("path").getAsString();
+           if(!_files.containsKey(pathstr)) {
+               throw new MissingFileException(pathstr);
+           }
 
-            JsonObject confirmation = JsonParser.parseString("{}").getAsJsonObject();
-            confirmation.addProperty("response",  "sendingFile");
-            confirmation.addProperty("signature", Base64.getEncoder().encodeToString(latestFile.getSignature()));
-            confirmation.addProperty("editor", latestFile.getEditor());
+           sendAck(os);
+           sendFileToSocket(_files.get(pathstr).getFile(), os);
+           ackMessage(is);
 
-            os.writeObject(confirmation.toString());
-
-            sendFileToSocket(latestFile.getFile(), os);
-            reply = JsonParser.parseString("{}").getAsJsonObject();
-            reply.addProperty("response", "OK");
-            return reply;
-
-        } catch (MissingFileException | IOException e) {
+        } catch (MissingFileException | IOException | ClassNotFoundException | MessageNotAckedException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK" + e.getMessage());
             return reply;
-        }*/
+        }
         return null;
     }
 
@@ -169,6 +158,19 @@ public class BackupServerThread extends Thread {
         reply.addProperty("response", "OK");
 
         os.writeObject(reply.toString());
+    }
+
+    private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        if (!reply.get("response").getAsString().equals("OK")) {
+            throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
+        }
+        return true;
     }
 
 }

@@ -269,6 +269,8 @@ public class Client {
             download(tempFile, is, _files.get(relativeFilePath).getFileSymKey());
 
             Files.copy(tempFilePath, filePath, StandardCopyOption.REPLACE_EXISTING);
+
+            sendAck(os);
         } catch (Exception e) {
             tempFile.delete();
             throw e;
