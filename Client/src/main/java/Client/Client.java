@@ -358,7 +358,7 @@ public class Client {
 
         try {
             shareFile(path, username, os, is);
-        } catch(MessageNotAckedException e) {
+        } catch(MessageNotAckedException | InvalidPathException e) {
             System.err.println(e.getMessage());
         }
         catch (Exception e) {
@@ -388,6 +388,8 @@ public class Client {
 
         String encodedPublicKey = JsonParser.parseString((String) is.readObject())
                 .getAsJsonObject().get("publicKey").getAsString();
+
+        sendAck(os);
 
         System.out.println("Received public key: " + encodedPublicKey);
         byte[] publicKeyBytes = Base64.getDecoder().decode(encodedPublicKey);
@@ -558,6 +560,13 @@ public class Client {
         KeyStore ks = KeyStore.getInstance("PKCS12");
         ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
         return (PrivateKey) ks.getKey("client", _keyStorePass);
+    }
+
+    private void sendAck(ObjectOutputStream os) throws IOException {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        reply.addProperty("response", "OK");
+
+        os.writeObject(reply.toString());
     }
 
     private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {

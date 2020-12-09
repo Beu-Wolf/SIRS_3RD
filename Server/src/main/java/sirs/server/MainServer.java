@@ -398,6 +398,8 @@ class ServerThread extends Thread {
 
             os.writeObject(publicKeyReply.toString());
 
+            ackMessage(is);
+
             JsonObject cipheredKeyJson = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
             System.out.println(cipheredKeyJson.toString());
             byte[] cipheredKey = Base64.getDecoder().decode(cipheredKeyJson.get("cipheredFileKey").getAsString());
@@ -538,6 +540,19 @@ class ServerThread extends Thread {
         reply.addProperty("response", "OK");
 
         os.writeObject(reply.toString());
+    }
+
+    private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        if (!reply.get("response").getAsString().equals("OK")) {
+            throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
+        }
+        return true;
     }
 
     private SSLSocket connectToBackupServer() {
