@@ -394,11 +394,11 @@ public class Client {
         String encodedPublicKey = JsonParser.parseString((String) is.readObject())
                 .getAsJsonObject().get("publicKey").getAsString();
 
-        sendAck(os);
-
         System.out.println("Received public key: " + encodedPublicKey);
         byte[] publicKeyBytes = Base64.getDecoder().decode(encodedPublicKey);
         PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
+
+        sendAck(os);
 
         FileInfo fi = _files.get(Paths.get(path));
         System.out.println("File key: " + Base64.getEncoder().encodeToString(fi.getFileSymKey().getEncoded()));
