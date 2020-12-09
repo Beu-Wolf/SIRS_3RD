@@ -3,6 +3,9 @@ package sirs.server;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,11 +28,16 @@ public class RRRDServer {
                 _clients = server.getClients();
 
                 try {
-                    System.out.println(_clients);
+
+                    Path fileToDeletePath = Paths.get("tmp/files.ser");
+                    Files.deleteIfExists(fileToDeletePath);
+                    Path fileToDeletePath1 = Paths.get("tmp/clients.ser");
+                    Files.deleteIfExists(fileToDeletePath1);
+
                     FileOutputStream fileFilesOut =
-                            new FileOutputStream("/tmp/files.ser");
+                            new FileOutputStream("tmp/files.ser");
                     FileOutputStream fileClientOut =
-                            new FileOutputStream("/tmp/clients.ser");
+                            new FileOutputStream("tmp/clients.ser");
                     ObjectOutputStream outFiles = new ObjectOutputStream(fileFilesOut);
                     ObjectOutputStream outClients = new ObjectOutputStream(fileClientOut);
                     outFiles.writeObject(_files);

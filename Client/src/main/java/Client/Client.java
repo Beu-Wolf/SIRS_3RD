@@ -125,6 +125,7 @@ public class Client {
         ks.load(new FileInputStream("keys/client.keystore.pk12"), _keyStorePass);
 
         final Certificate cert = ks.getCertificate("client");
+        System.out.println(cert.getPublicKey());
 
         request.addProperty("cert", Base64.getEncoder().encodeToString(cert.getEncoded()));
 

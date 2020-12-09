@@ -162,8 +162,6 @@ class ServerThread extends Thread {
 
             String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
 
-            System.out.println(hashed);
-
             if (!canRegister(username)) {
                 reply = JsonParser.parseString("{}").getAsJsonObject();
                 reply.addProperty("response", "NOK: Username already in use.");
@@ -185,7 +183,6 @@ class ServerThread extends Thread {
 
     public void registerClient(Certificate cert, String username, String password) {
         _clients.put(username, new ClientInfo(cert, username, password));
-        System.out.println(_clients);
     }
 
 
@@ -479,19 +476,39 @@ public class MainServer {
 
             System.out.println("Running at " + _host + ":" + _port);
 
+            File dir = new File("tmp/");
+            File[] files = dir.listFiles((dir1, name) -> name.endsWith(".ser"));
+
+            if (files.length != 0) {
+                FileInputStream fileFilesIn = new FileInputStream("tmp/files.ser");
+                ObjectInputStream inFiles = new ObjectInputStream(fileFilesIn);
+                FileInputStream fileClientsIn = new FileInputStream("tmp/clients.ser");
+                ObjectInputStream inClients = new ObjectInputStream(fileClientsIn);
+                _clients = (ConcurrentHashMap<String, ClientInfo>) inClients.readObject();
+                _files = (List<FileInfo>) inFiles.readObject();
+                fileFilesIn.close();
+                inFiles.close();
+                fileClientsIn.close();
+                inClients.close();
+
+                System.out.println("Client... " + _clients.toString());
+                System.out.println(_clients.get("mi").getPublicKey());
+
+            }
+
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
                 ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory);
                 st.start();
             }
-        } catch (IOException e) {
+        } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
     }
 
-    public ConcurrentHashMap<String, ClientInfo> getClients() { return  _clients;}
+    ConcurrentHashMap<String, ClientInfo> getClients() { return  _clients;}
 
-    public List<FileInfo> getFileInfo() { return _files; }
+    List<FileInfo> getFileInfo() { return _files; }
 
     private SSLServerSocketFactory getServerSocketFactory() {
         SSLServerSocketFactory ssf;
