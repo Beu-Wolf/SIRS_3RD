@@ -507,69 +507,6 @@ public class Client {
         return cipherHash(messageDigest.digest(), clientPrivateKey);
     }
 
-    private void parseRecoverFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to recover (from the files directory): ");
-        String path = scanner.nextLine().trim();
-        System.out.println("Filename: " + path);
-        try {
-            recoverFile(path, os, is);
-        } catch (InvalidPathException | IOException | ClassNotFoundException | InvalidKeyException | BadPaddingException | NoSuchAlgorithmException | IllegalBlockSizeException | NoSuchPaddingException | RecoverException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void recoverFile(String path, ObjectOutputStream os, ObjectInputStream is) throws InvalidPathException, IOException, ClassNotFoundException, InvalidKeyException, BadPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, NoSuchPaddingException, RecoverException {
-        /*Path filePath = FileSystems.getDefault().getPath("files", path);
-        Path relativeFilePath = FileSystems.getDefault().getPath("files").relativize(filePath);
-
-        if(!_files.containsKey(relativeFilePath)) {
-            throw new InvalidPathException("File does not exist");
-        }
-
-        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
-        request.addProperty("operation", "RecoverFile");
-        request.addProperty("username", _username);
-
-        if(relativeFilePath.startsWith("sharedFiles")) {
-            relativeFilePath = relativeFilePath.subpath(1, relativeFilePath.getNameCount());
-            request.addProperty("ownedFile", false);
-        } else {
-            request.addProperty("ownedFile", true);
-        }
-
-        request.addProperty("path", relativeFilePath.toString());
-
-        System.out.println(request.toString());
-        os.writeObject(request.toString());
-
-        String line;
-        System.out.println("Waiting");
-        line = (String) is.readObject();
-
-        JsonObject serverResponse = JsonParser.parseString(line).getAsJsonObject();
-        System.out.println("Response: " + serverResponse.get("response").getAsString());
-
-        if (!serverResponse.get("response").getAsString().equals("SendingFile")) {
-            // someting went wrong
-            throw new RecoverException("Could not recover file");
-
-        }
-
-
-        // Clean File
-        new FileOutputStream(_files.get(relativeFilePath).getFile()).close();
-        // Read file from socket
-        receiveFileFromSocket(_files.get(relativeFilePath).getFile(), _files.get(relativeFilePath).getFileSymKey(), is);
-
-        line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
-
-        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-        System.out.println("Result: " + reply.get("response").getAsString()); */
-        System.out.println("Not yet done");
-
-    }
 
     private MessageDigest getMessageDigest() throws NoSuchAlgorithmException {
         final String DIGEST_ALGO = "SHA-256";
@@ -587,10 +524,6 @@ public class Client {
         cipher.init(Cipher.ENCRYPT_MODE, clientPrivKey);
         return cipher.doFinal(bytes);
     }
-
-    public void writeFile(/*...*/) {}
-
-    public void deleteFile(String path) {}
 
     private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
