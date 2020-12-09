@@ -1,13 +1,12 @@
 package sirs.server;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import sirs.server.exceptions.*;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
+
+import javax.crypto.*;
 import javax.net.ssl.*;
 import java.io.*;
 import java.nio.file.*;
@@ -25,8 +24,9 @@ import org.mindrot.jbcrypt.BCrypt;
 class ServerThread extends Thread {
 
     private ConcurrentHashMap<String, ClientInfo> _clients;
-    private List<FileInfo> _files;
+    private ConcurrentHashMap<String, FileInfo> _files;
     private boolean _online = false;
+    private String _loggedInUser;
 
     private char[] _password;
     private SSLSocket _socket;
@@ -36,7 +36,7 @@ class ServerThread extends Thread {
     private String filesRootFolder = "files";
 
 
-    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, List<FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
+    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, ConcurrentHashMap<String, FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
         _clients = clients;
         _files = files;
         _password = password;
@@ -73,11 +73,16 @@ class ServerThread extends Thread {
                         reply = parseCreateFile(operationJson, is, os);
                         break;
                     case "ShareFile":
+                        reply = parseShareFile(operationJson, is, os);
                         break;
                     case "EditFile":
                         reply = parseEditFile(operationJson, is, os);
                         break;
                     case "GetFile":
+                        reply = parseGetFile(operationJson, is, os);
+                        break;
+                    case "GetShared":
+                        reply = parseGetShared(operationJson, is, os);
                         break;
                     case "RecoverFile":
                         reply = parseRecoverFile(operationJson, os);
@@ -93,6 +98,7 @@ class ServerThread extends Thread {
                     assert reply != null;
                     System.out.println("Sending: " + reply);
                     os.writeObject(reply.toString());
+                    os.flush();
                 }
             }
             is.close();
@@ -131,7 +137,6 @@ class ServerThread extends Thread {
             reply.addProperty("response", "NOK: Wrong Password.");
         }
         else {
-            login(username);
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
         }
@@ -139,6 +144,7 @@ class ServerThread extends Thread {
     }
 
     private void login(String username) {
+        _loggedInUser = username;
         _clients.get(username).setUserOnline(true);
     }
 
@@ -185,6 +191,7 @@ class ServerThread extends Thread {
 
     public void registerClient(Certificate cert, String username, String password) {
         _clients.put(username, new ClientInfo(cert, username, password));
+        _loggedInUser = username;
         System.out.println(_clients);
     }
 
@@ -256,11 +263,12 @@ class ServerThread extends Thread {
 
         Files.delete(tempPath);
 
-        File file = new File(String.valueOf(newPath));
+        String path = String.valueOf(newPath);
+        File file = new File(path);
 
         FileInfo fi = new FileInfo(file, owner, checksum);
         fi.addEditor(owner);
-        _files.add(fi);
+        _files.put(path, fi);
         return fi;
     }
 
@@ -280,12 +288,13 @@ class ServerThread extends Thread {
             }
 
             // Verify if file exists
-            FileInfo fi = _files.stream().filter(x -> x.getFile().toPath().equals(filePath)).findFirst().orElse(null);
-            if(fi == null) {
-                 throw new MissingFileException(filePath.toString());
+            String pathStr = filePath.toString();
+            if(!_files.containsKey(pathStr)) {
+                 throw new MissingFileException(pathStr);
             }
 
             // Verify permission to edit file
+            FileInfo fi = _files.get(pathStr);
             if (!fi.containsEditor(_clients.get(username))) {
                 throw new InvalidEditorException(username, filePath.toString());
             }
@@ -357,9 +366,6 @@ class ServerThread extends Thread {
         backupRequest.addProperty("lastEditor", username);
         backupRequest.addProperty("version", fi.getCurrentVersion());
         backupRequest.addProperty("signature", fileSignature);
-
-
-
 
         Path backupFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder).relativize(filePath);
         System.out.println("Backup Path: " + backupFilePath);
@@ -497,17 +503,128 @@ class ServerThread extends Thread {
     }
 
 
-    public void shareFile(String owner, String clientToShare, String path) {
-        FileInfo fileToShare = _files.stream().filter(x -> x.getFile().getPath().equals(path)).findFirst().orElse(null);
-        if(fileToShare != null) {
-            File file = fileToShare.getFile();
 
-            // Share with user, verify owner
+    public JsonObject parseShareFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        try {
+            String path = request.get("path").getAsString();
+            String username = request.get("username").getAsString();
+
+            if (!_clients.containsKey(username)) {
+                throw new NoClientException(username);
+            }
+
+            Path sharePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, _loggedInUser, path).normalize();
+
+            // Verify if file exists
+            String pathStr = sharePath.toString();
+            if(!_files.containsKey(pathStr)) {
+                throw new MissingFileException(sharePath.toString());
+            }
+
+            sendAck(os);
+
+            System.out.println("Sharing: " + sharePath.toString() + " with " + username);
+
+            byte[] keyBytes = _clients.get(username).getPublicKey().getEncoded();
+            String encodedKey = Base64.getEncoder().encodeToString(keyBytes);
+            JsonObject publicKeyReply = JsonParser.parseString("{}").getAsJsonObject();
+            publicKeyReply.addProperty("publicKey", encodedKey);
+
+            os.writeObject(publicKeyReply.toString());
+
+            ackMessage(is);
+
+            JsonObject cipheredKeyJson = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
+            System.out.println(cipheredKeyJson.toString());
+            byte[] cipheredKey = Base64.getDecoder().decode(cipheredKeyJson.get("cipheredFileKey").getAsString());
+
+            ClientInfo client = _clients.get(username);
+            client.shareFile(path, cipheredKey, _loggedInUser);
+
+            _files.get(pathStr).addEditor(client);
+
+            reply.addProperty("response", "OK");
+        } catch (Exception e) {
+            e.printStackTrace();
+            reply.addProperty("response", "NOK: " + e.getMessage());
         }
+
+        return reply;
+    }
+
+    public JsonObject parseGetFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        ClientInfo client = _clients.get(_loggedInUser);
+        JsonObject response = JsonParser.parseString("{}").getAsJsonObject();
+
+        try {
+            String requestPath = request.get("path").getAsString();
+
+            Path p;
+            if (request.get("ownerGet").getAsBoolean()) {
+                requestPath = Paths.get(_loggedInUser, requestPath).toString();
+            }
+            p = Paths.get(System.getProperty("user.dir"), filesRootFolder, requestPath).normalize();
+
+            String path = String.valueOf(p);
+            if (!_files.containsKey(path)) {
+                throw new MissingFileException(requestPath);
+            }
+
+            FileInfo file = _files.get(path);
+
+            if (!file.containsEditor(client)) {
+                throw new NoPermissionException(_loggedInUser, requestPath);
+            }
+
+            sendAck(os);
+
+            /* TODO: Signature Validation and Backup? */
+            sendFile(file.getFile(), os);
+
+            response.addProperty("response", "OK");
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.addProperty("response", "NOK: " + e.getMessage());
+        }
+
+        return response;
+    }
+
+    public void sendFile(File file, ObjectOutputStream os) throws IOException {
+        FileInputStream fis = new FileInputStream(file.getPath());
+
+        byte[] chunk = new byte[8 * 1024];
+        int bytesRead;
+        while ((bytesRead = fis.read(chunk)) >= 0) {
+            os.writeObject(Arrays.copyOfRange(chunk, 0, bytesRead));
+            os.flush();
+        }
+        os.writeObject(Base64.getDecoder().decode("FileDone"));
+        os.flush();
+    }
+
+    public JsonObject parseGetShared(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        ClientInfo client = _clients.get(_loggedInUser);
+        JsonObject response = JsonParser.parseString("{}").getAsJsonObject();
+
+        JsonArray fileArray = JsonParser.parseString("[]").getAsJsonArray();
+
+        for (SharedFile f : client.getSharedFiles()) {
+            JsonObject obj = JsonParser.parseString("{}").getAsJsonObject();
+            obj.addProperty("path", f.getPath());
+            obj.addProperty("owner", f.getOwner());
+            obj.addProperty("cipheredKey", Base64.getEncoder().encodeToString(f.getCipheredKey()));
+
+            fileArray.add(obj);
+        }
+
+        response.add("files", fileArray);
+        return response;
     }
 
     public void updateFile(String path, String content) {
-        FileInfo fileToShare = _files.stream().filter(x -> x.getFile().getPath().equals(path)).findFirst().orElse(null);
+        FileInfo fileToShare = _files.get(path);
         if(fileToShare != null) {
             try (FileWriter fw = new FileWriter(fileToShare.getFile())) {
                 fw.write(content);
@@ -518,10 +635,6 @@ class ServerThread extends Thread {
         }
     }
 
-    public void getFile(String path, String username) {
-        // Verify if has access to file
-        // Send file
-    }
 
     public void sendFile(FileInfo fo, ObjectOutputStream os) throws IOException {
         try (FileInputStream fis = new FileInputStream(fo.getFile())) {
@@ -576,6 +689,19 @@ class ServerThread extends Thread {
         os.writeObject(reply.toString());
     }
 
+    private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
+        String line;
+        System.out.println("Waiting");
+        line = (String) is.readObject();
+
+        System.out.println("Received:" + line);
+        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
+        if (!reply.get("response").getAsString().equals("OK")) {
+            throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
+        }
+        return true;
+    }
+
     private SSLSocket connectToBackupServer() {
         try {
             SSLSocket s = (SSLSocket) _backupSocketFactory.createSocket("localhost", 20000);
@@ -592,18 +718,6 @@ class ServerThread extends Thread {
         }
     }
 
-    private void ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
-        String line;
-        System.out.println("Waiting");
-        line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
-        JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
-        if (!reply.get("response").getAsString().equals("OK")) {
-            throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
-        }
-    }
-
 }
 
 
@@ -611,7 +725,7 @@ class ServerThread extends Thread {
 public class MainServer {
 
     private ConcurrentHashMap<String, ClientInfo> _clients = new ConcurrentHashMap<>();
-    private List<FileInfo> _files = Collections.synchronizedList(new ArrayList<>());
+    private ConcurrentHashMap<String, FileInfo> _files = new ConcurrentHashMap<>();
 
     private String _host;
     private int _port;
