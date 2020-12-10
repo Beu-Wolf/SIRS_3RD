@@ -268,6 +268,8 @@ public class Client {
             download(tempFile, is, _files.get(relativeFilePath).getFileSymKey());
 
             Files.copy(tempFilePath, filePath, StandardCopyOption.REPLACE_EXISTING);
+
+            sendAck(os);
         } catch (Exception e) {
             tempFile.delete();
             throw e;
@@ -480,7 +482,6 @@ public class Client {
     private byte[] sendFileToServer(ObjectOutputStream os, Path filePath, SecretKey fileSecretKey) throws NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException, IOException, CertificateException, KeyStoreException, UnrecoverableKeyException {
         FileInputStream fis;
         Cipher fileCipher = getFileCipher(fileSecretKey);
-
         MessageDigest messageDigest = getMessageDigest();
 
         // Send file 8k bytes at a time
@@ -505,6 +506,7 @@ public class Client {
         return cipherHash(messageDigest.digest(), clientPrivateKey);
     }
 
+
     private MessageDigest getMessageDigest() throws NoSuchAlgorithmException {
         final String DIGEST_ALGO = "SHA-256";
         return MessageDigest.getInstance(DIGEST_ALGO);
@@ -521,10 +523,6 @@ public class Client {
         cipher.init(Cipher.ENCRYPT_MODE, clientPrivKey);
         return cipher.doFinal(bytes);
     }
-
-    public void writeFile(/*...*/) {}
-
-    public void deleteFile(String path) {}
 
     private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();

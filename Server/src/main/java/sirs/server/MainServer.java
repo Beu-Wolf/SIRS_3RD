@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import sirs.server.exceptions.*;
 
+
 import javax.crypto.*;
 import javax.net.ssl.*;
 import java.io.*;
@@ -14,8 +15,6 @@ import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import org.mindrot.jbcrypt.BCrypt;
@@ -238,14 +237,15 @@ class ServerThread extends Thread {
                 throw new InvalidHashException("File Signatures do not match");
             }
 
-            createNewFile(tempFilePath, newFilePath, _clients.get(username), signature);
+            FileInfo fi = createNewFile(tempFilePath, newFilePath, _clients.get(username), signature);
 
             // Send file to backup
+            sendFileToBackup(newFilePath, username, fi, fileSignature);
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | ClassNotFoundException | NoClientException | NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException | InvalidHashException e) {
+        } catch (IOException | ClassNotFoundException | NoClientException | NoSuchAlgorithmException | NoSuchPaddingException | InvalidKeyException | IllegalBlockSizeException | BadPaddingException | InvalidHashException | BackupException | MessageNotAckedException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
@@ -254,8 +254,7 @@ class ServerThread extends Thread {
     }
 
 
-
-    public void createNewFile( Path tempPath, Path newPath, ClientInfo owner, byte[] checksum) throws IOException {
+    public FileInfo createNewFile( Path tempPath, Path newPath, ClientInfo owner, byte[] checksum) throws IOException {
 
         Files.copy(tempPath, newPath, StandardCopyOption.REPLACE_EXISTING);
 
@@ -264,10 +263,10 @@ class ServerThread extends Thread {
         String path = String.valueOf(newPath);
         File file = new File(path);
 
-        FileInfo fi = new FileInfo(file, owner, checksum);
+        FileInfo fi = new FileInfo(file, owner, checksum, owner);
         fi.addEditor(owner);
         _files.put(path, fi);
-
+        return fi;
     }
 
     public JsonObject parseEditFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
@@ -326,20 +325,87 @@ class ServerThread extends Thread {
                 throw new InvalidHashException("File signatures do not match!");
             }
 
-            // Clean File
-            editFile(tempFilePath, fi, signature);
+            editFile(tempFilePath, fi, signature, _clients.get(username));
 
-            // Send file to backup
+            sendFileToBackup(filePath, username, fi, fileSignature);
+
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
             return reply;
 
-        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | NoSuchAlgorithmException | InvalidHashException | NoSuchPaddingException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException e) {
+        } catch (IOException | NoClientException | InvalidEditorException | MissingFileException | ClassNotFoundException | BackupException | NoSuchAlgorithmException | MessageNotAckedException | NoSuchPaddingException | InvalidKeyException | BadPaddingException | IllegalBlockSizeException | InvalidHashException e) {
             e.printStackTrace();
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "NOK: " + e.getMessage());
             return reply;
         }
+    }
+
+    public void editFile(Path tempFilePath, FileInfo fi, byte[] signature, ClientInfo lastEditor) throws IOException {
+
+        Files.copy(tempFilePath, fi.getFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
+        Files.delete(tempFilePath);
+
+        fi.setLatestSignature(signature);
+        fi.setLastEditor(lastEditor);
+        fi.updateVersion();
+    }
+
+    private void sendFileToBackup(Path filePath, String username, FileInfo fi, String fileSignature) throws IOException, ClassNotFoundException, BackupException, MessageNotAckedException {
+
+        SSLSocket connectionToBackup = connectToBackupServer();
+        assert connectionToBackup != null;
+
+        ObjectOutputStream bos = new ObjectOutputStream(connectionToBackup.getOutputStream());
+        ObjectInputStream bis = new ObjectInputStream(connectionToBackup.getInputStream());
+
+        JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
+        backupRequest.addProperty("operation", "BackupFile");
+        backupRequest.addProperty("lastEditor", username);
+        backupRequest.addProperty("signature", fileSignature);
+
+        Path backupFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder).relativize(filePath);
+        System.out.println("Backup Path: " + backupFilePath);
+        backupRequest.addProperty("path", backupFilePath.toString());
+
+        System.out.println(backupRequest.toString());
+        bos.writeObject(backupRequest.toString());
+
+        ackMessage(bis);
+
+        sendFile(fi, bos);
+
+        bis.close();
+        bos.close();
+
+    }
+
+    private void getFileFromBackup(FileInfo tamperedFile) throws IOException, MessageNotAckedException, ClassNotFoundException{
+        SSLSocket connectionToBackup = connectToBackupServer();
+        assert connectionToBackup != null;
+
+        ObjectOutputStream bos = new ObjectOutputStream(connectionToBackup.getOutputStream());
+        ObjectInputStream bis = new ObjectInputStream(connectionToBackup.getInputStream());
+
+        Path backupFilePath = Paths.get(System.getProperty("user.dir"), filesRootFolder).relativize(tamperedFile.getFile().toPath());
+
+        JsonObject backupRequest = JsonParser.parseString("{}").getAsJsonObject();
+        backupRequest.addProperty("operation", "RecoverFile");
+        backupRequest.addProperty("path", backupFilePath.toString());
+
+        System.out.println(backupRequest.toString());
+        bos.writeObject(backupRequest.toString());
+
+        ackMessage(bis);
+
+        new FileOutputStream(tamperedFile.getFile()).close(); // Clean file
+        // Overwrite existent
+        receiveFileFromBackupSocket(tamperedFile.getFile(), bis);
+
+        sendAck(bos);
+
+        bis.close();
+        bos.close();
     }
 
     public byte[] receiveFileFromSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException, NoSuchAlgorithmException {
@@ -360,13 +426,17 @@ class ServerThread extends Thread {
         return messageDigest.digest();
     }
 
-
-
-    public void editFile(Path tempFilePath, FileInfo fi, byte[] signature) throws IOException {
-        Files.copy(tempFilePath, fi.getFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
-        Files.delete(tempFilePath);
-        fi.setLatestSignature(signature);
-        fi.updateVersion();
+    private void receiveFileFromBackupSocket(File file, ObjectInputStream is) throws IOException, ClassNotFoundException {
+        byte[] fileChunk;
+        boolean fileFinish = false;
+        while(!fileFinish) {
+            fileChunk = (byte[]) is.readObject();
+            if (Base64.getEncoder().encodeToString(fileChunk).equals("FileDone")) {
+                fileFinish = true;
+            } else {
+                Files.write(file.toPath(), fileChunk, StandardOpenOption.APPEND);
+            }
+        }
     }
 
     public JsonObject parseShareFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
@@ -445,7 +515,21 @@ class ServerThread extends Thread {
             sendAck(os);
 
             /* TODO: Signature Validation and Backup? */
+
+            // Verify if file was not tampered with when was in the server (Ransomware)
+            byte[] currFileHash  = computeFileSignature(new FileInputStream(file.getFile()));
+
+            byte[] fileHash = decipherHash(file.getLatestSignature(), file.getLastEditor().getPublicKey());
+
+            if(!Arrays.equals(currFileHash, fileHash)) {
+                // Someone tampered with the file, recover it
+                System.out.println("Recovering file!");
+                getFileFromBackup(file);
+            }
+
             sendFile(file.getFile(), os);
+
+            ackMessage(is);
 
             response.addProperty("response", "OK");
         } catch (Exception e) {
@@ -488,20 +572,20 @@ class ServerThread extends Thread {
         return response;
     }
 
-    public void updateFile(String path, String content) {
-        FileInfo fileToShare = _files.get(path);
-        if(fileToShare != null) {
-            try (FileWriter fw = new FileWriter(fileToShare.getFile())) {
-                fw.write(content);
-                fileToShare.updateVersion();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
 
-    public void sendFileToBackup(FileInfo fo) {
-        // Send fo to backup;
+    public void sendFile(FileInfo fo, ObjectOutputStream os) throws IOException {
+        try (FileInputStream fis = new FileInputStream(fo.getFile())) {
+
+            byte[] fileChunk = new byte[8 * 1024];
+            int bytesRead;
+
+            while ((bytesRead = fis.read(fileChunk)) >= 0) {
+                os.writeObject(Arrays.copyOfRange(fileChunk, 0, bytesRead));
+                os.flush();
+            }
+            os.writeObject(Base64.getDecoder().decode("FileDone"));
+            os.flush();
+        }
     }
 
 
@@ -524,7 +608,7 @@ class ServerThread extends Thread {
     }
 
     private byte[] computeFileSignature(FileInputStream fis) throws NoSuchAlgorithmException, KeyStoreException, IOException, CertificateException, UnrecoverableKeyException, NoSuchPaddingException, InvalidKeyException, BadPaddingException, IllegalBlockSizeException {
-        // Compute checksum of this File and cipher with Private Key
+        // Compute checksum of this File
         MessageDigest messageDigest = getMessageDigest();
         byte[] fileChunk = new byte[8*1024];
         int count;
@@ -570,6 +654,7 @@ class ServerThread extends Thread {
             return null;
         }
     }
+
 }
 
 
