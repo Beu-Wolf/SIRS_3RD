@@ -375,8 +375,6 @@ class ServerThread extends Thread {
 
         sendFile(fi, bos);
 
-        ackMessage(bis);
-
         bis.close();
         bos.close();
 
@@ -519,11 +517,11 @@ class ServerThread extends Thread {
             /* TODO: Signature Validation and Backup? */
 
             // Verify if file was not tampered with when was in the server (Ransomware)
-            byte[] curFileSignature  = computeFileSignature(new FileInputStream(file.getFile()));
+            byte[] currFileHash  = computeFileSignature(new FileInputStream(file.getFile()));
 
             byte[] fileHash = decipherHash(file.getLatestSignature(), file.getLastEditor().getPublicKey());
 
-            if(!Arrays.equals(curFileSignature, fileHash)) {
+            if(!Arrays.equals(currFileHash, fileHash)) {
                 // Someone tampered with the file, recover it
                 System.out.println("Recovering file!");
                 getFileFromBackup(file);

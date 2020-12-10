@@ -1,7 +1,6 @@
 package Client;
 
 import Client.exceptions.InvalidPathException;
-import Client.exceptions.RecoverException;
 import Client.exceptions.InvalidUsernameException;
 import Client.exceptions.MessageNotAckedException;
 import com.google.gson.JsonArray;
