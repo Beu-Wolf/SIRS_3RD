@@ -539,7 +539,7 @@ class ServerThread extends Thread {
             for (ClientInfo editor : file.getEditors()) {
                 if (editor.getUsername().equals(_loggedInUser)) continue;
                 JsonObject shareFileRequest = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
-                JsonObject shareFileReply = parseCreateFile(shareFileRequest, is, os);
+                JsonObject shareFileReply = parseShareFile(shareFileRequest, is, os);
                 os.writeObject(shareFileReply.toString());
             }
 
