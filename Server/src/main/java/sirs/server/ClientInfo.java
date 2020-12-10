@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
 import java.util.LinkedList;
+import java.util.stream.Collectors;
 
 public class ClientInfo {
     private Certificate _certificate;
@@ -43,5 +44,11 @@ public class ClientInfo {
 
     public LinkedList<SharedFile> getSharedFiles() {
         return _sharedFiles;
+    }
+
+    public void revokeFile(String path, String owner) {
+        _sharedFiles = _sharedFiles.stream()
+                .filter(x -> !(x.getPath().equals(path) && x.getOwner().equals(owner)))
+                .collect(Collectors.toCollection(LinkedList::new));
     }
 }

@@ -70,6 +70,8 @@ public class Client {
                         parseShareFile(scanner, os, is);
                     } else if (Pattern.matches("^get shared$", command)) {
                         parseGetShared(scanner, os, is);
+                    } else if (Pattern.matches("^revoke file$", command)) {
+                        parseRevokeFile(scanner, os, is);
                     }
 
 
@@ -175,7 +177,6 @@ public class Client {
 
     }
 
-    /* Types to be better thought out */
     public void createFile(String path, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException, IOException, ClassNotFoundException, InvalidPathException, IllegalBlockSizeException, InvalidKeyException, BadPaddingException, NoSuchPaddingException, CertificateException, KeyStoreException, UnrecoverableKeyException, MessageNotAckedException, InvalidUsernameException {
 
         if(_username == null) {
@@ -420,9 +421,9 @@ public class Client {
 
         try {
             getShared(os, is);
-        } /* catch(MessageNotAckedException e) {
+        } catch(MessageNotAckedException e) {
             System.err.println(e.getMessage());
-        } */
+        }
         catch (Exception e) {
             e.printStackTrace();
         }
@@ -459,6 +460,51 @@ public class Client {
                 getFile(p.toString(), os, is);
             }
         }
+    }
+
+    public void parseRevokeFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
+        System.out.print("Please enter file path to change permissions (from the " + _filesDir + " directory): ");
+        String path = scanner.nextLine().trim();
+        System.out.print("Revoke from user: ");
+        String username = scanner.nextLine().trim();
+
+        try {
+            revokeFile(path, username, os, is);
+        } catch(MessageNotAckedException | InvalidPathException e) {
+            System.err.println(e.getMessage());
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void revokeFile(String path, String username, ObjectOutputStream os, ObjectInputStream is) throws InvalidPathException, IOException, MessageNotAckedException, ClassNotFoundException, NoSuchAlgorithmException, NoSuchPaddingException, UnrecoverableKeyException, IllegalBlockSizeException, BadPaddingException, CertificateException, KeyStoreException, InvalidKeyException, InvalidUsernameException, InvalidKeySpecException {
+        Path filePath = FileSystems.getDefault().getPath(_filesDir, path);
+        Path relativeFilePath = FileSystems.getDefault().getPath(_filesDir).relativize(filePath);
+
+        if (relativeFilePath.startsWith("sharedFiles")) {
+            throw new InvalidPathException("Can't revoke a file in the sharedFiles folder");
+        }
+
+        JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
+        request.addProperty("operation", "RevokeFile");
+        request.addProperty("path", path);
+        request.addProperty("username", username);
+
+        os.writeObject(request.toString());
+        ackMessage(is);
+
+        createFile(path, os, is);
+
+        JsonArray usersToReshareJson =
+                JsonParser.parseString((String) is.readObject()).getAsJsonArray();
+        sendAck(os);
+
+        for (JsonElement e : usersToReshareJson) {
+            shareFile(path, e.getAsString(), os, is);
+        }
+
+        ackMessage(is);
     }
 
     private SecretKey decipherFileKey(byte[] cipheredKey, PrivateKey privateKey) throws InvalidKeyException, BadPaddingException, IllegalBlockSizeException, NoSuchPaddingException, NoSuchAlgorithmException {
