@@ -3,6 +3,8 @@ package sirs.server;
 import java.nio.file.Path;
 import java.security.PublicKey;
 import java.security.cert.Certificate;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.stream.Collectors;
 
@@ -11,7 +13,7 @@ public class ClientInfo {
     private String _username;
     private String _password;
     private boolean _online;
-    private LinkedList<SharedFile> _sharedFiles = new LinkedList<>();
+    private HashMap<String, SharedFile> _sharedFiles = new HashMap<>();
 
     public ClientInfo(Certificate certificate, String username, String password) {
         _certificate = certificate;
@@ -35,20 +37,18 @@ public class ClientInfo {
     public void setUserOnline(boolean status) { _online = status;}
 
     public void shareFile(String path, byte[] cipheredKey, String owner) {
-        _sharedFiles.add(new SharedFile(path, cipheredKey, owner));
+        _sharedFiles.put(owner + "/" + path, new SharedFile(path, cipheredKey, owner));
     }
 
     public boolean hasSharedFiles() {
         return !_sharedFiles.isEmpty();
     }
 
-    public LinkedList<SharedFile> getSharedFiles() {
-        return _sharedFiles;
+    public Collection<SharedFile> getSharedFiles() {
+        return _sharedFiles.values();
     }
 
     public void revokeFile(String path, String owner) {
-        _sharedFiles = _sharedFiles.stream()
-                .filter(x -> !(x.getPath().equals(path) && x.getOwner().equals(owner)))
-                .collect(Collectors.toCollection(LinkedList::new));
+        _sharedFiles.remove(owner + "/" + path);
     }
 }
