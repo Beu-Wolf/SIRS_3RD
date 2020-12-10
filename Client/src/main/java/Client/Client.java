@@ -438,6 +438,13 @@ public class Client {
         JsonArray response = JsonParser.parseString((String) is.readObject())
                 .getAsJsonObject().get("files").getAsJsonArray();
 
+        Set<Path> revokedFiles = new HashSet<Path>();
+        for (Path p : _files.keySet()) {
+            if (p.startsWith("sharedFiles")) {
+                revokedFiles.add(p);
+            }
+        }
+
         if (response.size() == 0) {
             System.out.println("No files shared with you.");
         } else {
@@ -457,8 +464,16 @@ public class Client {
 
                 Path p = Paths.get("sharedFiles", owner, path);
                 _files.put(p, new FileInfo(owner, new File(String.valueOf(p)), key));
+                revokedFiles.remove(p);
                 getFile(p.toString(), os, is);
             }
+        }
+
+        for (Path p : revokedFiles) {
+            System.out.printf("Deleting revoked file: %s%n", p.toString());
+            Path del = Paths.get(_filesDir, p.toString());
+            Files.delete(del);
+            _files.remove(p);
         }
     }
 
