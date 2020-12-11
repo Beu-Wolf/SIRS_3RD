@@ -95,7 +95,7 @@ To download files that where shared with you, type `get shared` after the prompt
 To get the newest version of a file stored in the Server that you also have locally, type `get file` after the prompt and then type the file path (also starting in the `<filesRootFolder>`).
 
 ### Revoke authorization
-TODO
+To revoke the authorization of a user to edit a file, type `revoke file` after the prompt. Type the file path (also starting in the `<filesRootFolder>`), and then the user to which you want to revoke the authorization. You can't revoke from a file not created by you, that is, not inside the `sharedFiles` folder.
 
 ### Exit
 To stop your connection to the Server type `exit` after the prompt
