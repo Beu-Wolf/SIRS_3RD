@@ -19,7 +19,7 @@ public class RRRDServer {
 
         Runtime.getRuntime().addShutdownHook(new Thread() {
 
-            List<FileInfo> _files = null;
+            ConcurrentHashMap<String, FileInfo> _files = null;
             ConcurrentHashMap<String, ClientInfo> _clients;
 
             public void run() {
