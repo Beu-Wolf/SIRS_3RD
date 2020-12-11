@@ -43,10 +43,10 @@ public class Client {
     }
 
     public void interactive() {
-        Scanner scanner = new Scanner(System.in);
+        Console clientConsole = System.console();
 
-        System.out.print("Load data (from tmp folder): ");
-        String path = scanner.nextLine().trim();
+        clientConsole.printf("Load data (from tmp folder): ");
+        String path = clientConsole.readLine().trim();
 
         if (!path.isBlank()) {
 
@@ -56,7 +56,7 @@ public class Client {
             try {
                 if (clientObj.exists()) {
                     ObjectInputStream inClient;
-                    try (FileInputStream clientIn = new FileInputStream("tmp/client.ser")) {
+                    try (FileInputStream clientIn = new FileInputStream(clientObj)) {
                         inClient = new ObjectInputStream(clientIn);
 
                         HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
@@ -73,7 +73,7 @@ public class Client {
                 e.printStackTrace();
             }
         } else {
-            System.out.println("Not loading data, fresh client");
+           clientConsole.printf("Not loading data, fresh client\n");
         }
 
         try {
@@ -81,31 +81,31 @@ public class Client {
             ObjectOutputStream os = new ObjectOutputStream(_currentConnectionSocket.getOutputStream());
             ObjectInputStream is = new ObjectInputStream(_currentConnectionSocket.getInputStream());
             while(true) {
-                System.out.print("> ");
+                clientConsole.printf("> ");
 
-                    String command = scanner.nextLine().trim();
+                    String command = clientConsole.readLine().trim();
                     if (Pattern.matches("^exit$", command)) {
-                        parseExit(scanner, os, is);
+                        parseExit(clientConsole, os, is);
                         if(_currentConnectionSocket != null) {
                             _currentConnectionSocket.close();
                         }
                         break;
                     } else if (Pattern.matches("^register$", command)) {
-                        parseRegister(scanner, os, is);
+                        parseRegister(clientConsole, os, is);
                     } else if (Pattern.matches("^login$", command)) {
-                        parseLogin(scanner, os, is);
+                        parseLogin(clientConsole, os, is);
                     } else if (Pattern.matches("^create file$", command)) {
-                        parseCreateFile(scanner, os, is);
+                        parseCreateFile(clientConsole, os, is);
                     } else if (Pattern.matches("^get file$", command)) {
-                        parseGetFile(scanner, os, is);
+                        parseGetFile(clientConsole, os, is);
                     } else if (Pattern.matches("^edit file$", command)) {
-                        parseEditFile(scanner, os, is);
+                        parseEditFile(clientConsole, os, is);
                     } else if (Pattern.matches("^share file$", command)) {
-                        parseShareFile(scanner, os, is);
+                        parseShareFile(clientConsole, os, is);
                     } else if (Pattern.matches("^get shared$", command)) {
-                        parseGetShared(scanner, os, is);
+                        parseGetShared(clientConsole, os, is);
                     } else if (Pattern.matches("^revoke file$", command)) {
-                        parseRevokeFile(scanner, os, is);
+                        parseRevokeFile(clientConsole, os, is);
                     }
 
 
@@ -113,16 +113,15 @@ public class Client {
         } catch (NoSuchAlgorithmException | KeyStoreException | CertificateException | UnrecoverableKeyException | IOException | KeyManagementException | ClassNotFoundException e) {
             e.printStackTrace();
         }
-        scanner.close();
 
     }
-    public void parseLogin(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
+    public void parseLogin(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
-        System.out.println("Please enter your username");
-        String username = scanner.nextLine().trim();
+        clientConsole.printf("Please enter your username: ");
+        String username = String.valueOf(clientConsole.readPassword());
         _username = username;
-        System.out.println("Please enter your password");
-        String password = scanner.nextLine().trim();
+        clientConsole.printf("Please enter your password: ");
+        String password = String.valueOf(clientConsole.readPassword());
 
         login(username, password, os, is);
     }
@@ -145,15 +144,15 @@ public class Client {
         System.out.println("Result: " + reply.get("response").getAsString());
     }
 
-    public void parseRegister(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
-        System.out.println("Please enter your username");
-        String username = scanner.nextLine().trim();
-        System.out.println("Please enter your password");
-        String pw1 = scanner.nextLine().trim();
-        System.out.println("Please re-enter your password to confirm");
-        String pw2 = scanner.nextLine().trim();
+    public void parseRegister(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws IOException, KeyStoreException, ClassNotFoundException, CertificateException, NoSuchAlgorithmException {
+        clientConsole.printf("Please enter your username: ");
+        String username = clientConsole.readLine().trim();
+        clientConsole.printf("Please enter your password: ");
+        String pw1 = String.valueOf(clientConsole.readPassword());
+        clientConsole.printf("Please re-enter your password to confirm: ");
+        String pw2 = String.valueOf(clientConsole.readPassword());
         if (!pw1.equals(pw2)) {
-            System.out.println("Passwords don't match");
+            clientConsole.printf("Passwords don't match\n");
         }
         else {
             register(username, pw1, os, is);
@@ -198,10 +197,10 @@ public class Client {
     }
 
 
-    public void parseCreateFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
-        System.out.print("Please enter file path (from the " + _filesDir + " directory): ");
-        String path = scanner.nextLine().trim();
-        System.out.println("Filename: " + path);
+    public void parseCreateFile(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws NoSuchAlgorithmException {
+       clientConsole.printf("Please enter file path (from the " + _filesDir + " directory): ");
+        String path = clientConsole.readLine().trim();
+        clientConsole.printf("Filename: " + path + "\n");
         try {
             createFile(path, os, is);
         }catch (InvalidPathException | MessageNotAckedException | InvalidUsernameException e) {
@@ -258,10 +257,10 @@ public class Client {
         System.out.println("Operation Successful");
     }
 
-    public void parseGetFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to get (from the " + _filesDir + " directory): ");
-        String path = scanner.nextLine().trim();
-        System.out.println("Filename: " + path);
+    public void parseGetFile(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) {
+        clientConsole.printf("Please enter file path to get (from the " + _filesDir + " directory): ");
+        String path = clientConsole.readLine().trim();
+        clientConsole.printf("Filename: " + path + "\n");
 
         try {
             getFile(path, os, is);
@@ -335,10 +334,10 @@ public class Client {
         return cipher.doFinal(chunk);
     }
 
-    public void parseEditFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to edit (from the " + _filesDir + " directory): ");
-        String path = scanner.nextLine().trim();
-        System.out.println("Filename: " + path);
+    public void parseEditFile(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) {
+        clientConsole.printf("Please enter file path to edit (from the " + _filesDir + " directory): ");
+        String path = clientConsole.readLine().trim();
+        clientConsole.printf("Filename: " + path + "\n");
 
         try {
             editFile(path, os, is);
@@ -393,11 +392,11 @@ public class Client {
         System.out.println("Operation Successful");
     }
 
-    public void parseShareFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to share (from the files directory): ");
-        String path = scanner.nextLine().trim();
-        System.out.print("Share with user: ");
-        String username = scanner.nextLine().trim();
+    public void parseShareFile(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) {
+        clientConsole.printf("Please enter file path to share (from the files directory): ");
+        String path = clientConsole.readLine().trim();
+        clientConsole.printf("Share with user: ");
+        String username = clientConsole.readLine().trim();
 
         try {
             shareFile(path, username, os, is);
@@ -453,8 +452,8 @@ public class Client {
         System.out.println("Operation Successful!");
     }
 
-    public void parseGetShared(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.println("Getting shared files...");
+    public void parseGetShared(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) {
+        clientConsole.printf("Getting shared files...\n");
 
         try {
             getShared(os, is);
@@ -514,11 +513,11 @@ public class Client {
         }
     }
 
-    public void parseRevokeFile(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) {
-        System.out.print("Please enter file path to change permissions (from the " + _filesDir + " directory): ");
-        String path = scanner.nextLine().trim();
-        System.out.print("Revoke from user: ");
-        String username = scanner.nextLine().trim();
+    public void parseRevokeFile(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) {
+        clientConsole.printf("Please enter file path to change permissions (from the " + _filesDir + " directory): ");
+        String path = clientConsole.readLine().trim();
+        clientConsole.printf("Revoke from user: ");
+        String username = clientConsole.readLine().trim();
 
         try {
             revokeFile(path, username, os, is);
@@ -620,18 +619,18 @@ public class Client {
         return cipher.doFinal(bytes);
     }
 
-    private void parseExit(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException {
+    private void parseExit(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "Exit");
 
 
         try {
 
-            System.out.print("Store data in file (from tmp folder): ");
-            String path = scanner.nextLine().trim();
+            clientConsole.printf("Store data in file (from tmp folder): ");
+            String path = clientConsole.readLine().trim();
 
             if (path.isBlank()) {
-                System.out.println("Not serializing, exiting...");
+                clientConsole.printf("Not serializing, exiting...\n");
                 return;
             }
 
@@ -654,7 +653,7 @@ public class Client {
             outFiles.writeObject(files);
             outFiles.close();
             fileFilesOut.close();
-            System.out.println("Serialized data of Client is saved in " + clientPath.toString());
+            clientConsole.printf("Serialized data of Client is saved in " + clientPath.toString() + "\n");
 
         } catch (IOException i) {
             i.printStackTrace();
@@ -681,7 +680,7 @@ public class Client {
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(kmf.getKeyManagers(), tm.getTrustManagers(), null);
 
-        _currentConnectionSocket = (SSLSocket) sslContext.getSocketFactory().createSocket("localhost", 10000);
+        _currentConnectionSocket = (SSLSocket) sslContext.getSocketFactory().createSocket(_serverHost, _serverPort);
         String[] protocols = new String[] {"TLSv1.3"};
         String[] cipherSuites = new String[] {"TLS_AES_128_GCM_SHA256"};
 
