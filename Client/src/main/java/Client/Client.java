@@ -20,6 +20,8 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class Client {
 
@@ -50,7 +52,14 @@ public class Client {
                 ObjectInputStream inClient;
                 try (FileInputStream clientIn = new FileInputStream("tmp/client.ser")) {
                     inClient = new ObjectInputStream(clientIn);
-                    _files = (HashMap<Path, FileInfo>) inClient.readObject();
+
+                    HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
+                    files = (HashMap<String, FileInfo>) inClient.readObject();
+
+                    for (String s: files.keySet()) {
+                        _files.put(Paths.get(s), files.get(s));
+                    }
+
                     inClient.close();
                 }
                 }
@@ -609,13 +618,22 @@ public class Client {
 
         try {
             Path clientPath = Paths.get("tmp/client.ser");
+
+            HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
+
             Files.deleteIfExists(clientPath);
 
             FileOutputStream fileFilesOut =
                     new FileOutputStream(clientPath.toFile());
 
             ObjectOutputStream outFiles = new ObjectOutputStream(fileFilesOut);
-            outFiles.writeObject(_files);
+
+
+            for (Path p: _files.keySet()) {
+                files.put(p.toString(), _files.get(p));
+            }
+
+            outFiles.writeObject(files);
             outFiles.close();
             fileFilesOut.close();
             System.out.println("Serialized data of Client is saved in /tmp/client.ser");
