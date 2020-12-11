@@ -20,6 +20,7 @@ mvn compile
 ### Exec:
 #### Server:
   - Make sure there is a `files` folder inside the main folder
+  - Make sure there is a `tmp` folder inside the main folder
   - run `mvn exec:java`
   
 #### Backup:
