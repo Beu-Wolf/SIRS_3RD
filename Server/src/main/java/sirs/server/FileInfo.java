@@ -51,9 +51,13 @@ public class FileInfo implements java.io.Serializable {
         _currentVersion++;
     }
 
+    public ArrayList<ClientInfo> getEditors() { return _editors; }
+
     public void addEditor(ClientInfo client) {
         _editors.add(client);
     }
+
+    public void removeEditor(ClientInfo client) { _editors.remove(client); }
 
     public boolean containsEditor(ClientInfo client) {
         return _editors.contains(client);

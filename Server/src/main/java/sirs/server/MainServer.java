@@ -84,6 +84,9 @@ class ServerThread extends Thread {
                     case "GetShared":
                         reply = parseGetShared(operationJson, is, os);
                         break;
+                    case "RevokeFile":
+                        reply = parseRevokeFile(operationJson, is, os);
+                        break;
                     case "Exit":
                         (reply = JsonParser.parseString("{}").getAsJsonObject()).addProperty("response", "OK");
                         exit = true;
@@ -572,6 +575,66 @@ class ServerThread extends Thread {
         return response;
     }
 
+    public JsonObject parseRevokeFile(JsonObject request, ObjectInputStream is, ObjectOutputStream os) {
+        JsonObject reply = JsonParser.parseString("{}").getAsJsonObject();
+        try {
+            String path = request.get("path").getAsString();
+            String username = request.get("username").getAsString();
+
+            if (username.equals(_loggedInUser)) {
+                throw new SelfRevokeException(username, path);
+            }
+
+            if (!_clients.containsKey(username)) {
+                throw new NoClientException(username);
+            }
+            ClientInfo client = _clients.get(username);
+
+            Path revokePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, _loggedInUser, path).normalize();
+
+            // Verify if file exists
+            String pathStr = revokePath.toString();
+            if (!_files.containsKey(pathStr)) {
+                throw new MissingFileException(revokePath.toString());
+            }
+
+            FileInfo file = _files.get(pathStr);
+            if (!file.containsEditor(client)) {
+                throw new NotAnEditorException(username, path);
+            }
+
+            sendAck(os);
+
+            client.revokeFile(path, _loggedInUser);
+            file.removeEditor(client);
+
+            JsonObject createFileRequest = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
+            JsonObject createFileReply = parseCreateFile(createFileRequest, is, os);
+            os.writeObject(createFileReply.toString());
+
+            JsonArray editorsJson = JsonParser.parseString("[]").getAsJsonArray();
+            for (ClientInfo editor : file.getEditors()) {
+                if (editor.getUsername().equals(_loggedInUser)) continue;
+                editorsJson.add(editor.getUsername());
+            }
+            os.writeObject(editorsJson.toString());
+            ackMessage(is);
+
+            for (ClientInfo editor : file.getEditors()) {
+                if (editor.getUsername().equals(_loggedInUser)) continue;
+                JsonObject shareFileRequest = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
+                JsonObject shareFileReply = parseShareFile(shareFileRequest, is, os);
+                os.writeObject(shareFileReply.toString());
+            }
+
+            reply.addProperty("response", "OK");
+        } catch (Exception e) {
+            e.printStackTrace();
+            reply.addProperty("response", "NOK: " + e.getMessage());
+        }
+
+        return reply;
+    }
 
     public void sendFile(FileInfo fo, ObjectOutputStream os) throws IOException {
         try (FileInputStream fis = new FileInputStream(fo.getFile())) {
