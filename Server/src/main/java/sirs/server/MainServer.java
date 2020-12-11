@@ -136,6 +136,7 @@ class ServerThread extends Thread {
         else {
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
+            login(username);
         }
         return reply;
     }
@@ -505,6 +506,7 @@ class ServerThread extends Thread {
             }
 
             FileInfo file = _files.get(path);
+            System.out.println("File: " + file.toString() + " Editor: " + file.showEditors());
 
             if (!file.containsEditor(client)) {
                 throw new NoPermissionException(_loggedInUser, requestPath);
@@ -687,23 +689,21 @@ public class MainServer {
 
             System.out.println("Running at " + _host + ":" + _port);
 
-            File dir = new File("tmp/");
-            File[] files = dir.listFiles((dir1, name) -> name.endsWith(".ser"));
+            File serverObj = new File("tmp/server.ser");
 
-            if (files.length != 0) {
-                FileInputStream fileFilesIn = new FileInputStream("tmp/files.ser");
-                ObjectInputStream inFiles = new ObjectInputStream(fileFilesIn);
-                FileInputStream fileClientsIn = new FileInputStream("tmp/clients.ser");
-                ObjectInputStream inClients = new ObjectInputStream(fileClientsIn);
-                _clients = (ConcurrentHashMap<String, ClientInfo>) inClients.readObject();
-                _files = (ConcurrentHashMap<String, FileInfo>) inFiles.readObject();
-                fileFilesIn.close();
-                inFiles.close();
-                fileClientsIn.close();
-                inClients.close();
+            if (serverObj.exists()) {
+                ObjectInputStream inServer;
+                try (FileInputStream serverServerIn = new FileInputStream("tmp/server.ser")) {
+                    inServer = new ObjectInputStream(serverServerIn);
+
+                    SerializationWrapper serializationWrapper = (SerializationWrapper) inServer.readObject();
+
+                    _clients = serializationWrapper.getClients();
+                    _files = serializationWrapper.getFiles();
+                }
 
                 System.out.println("Client... " + _clients.toString());
-                System.out.println(_clients.get("mi").getPublicKey());
+                System.out.println("Files..." + _files.toString());
 
             }
 

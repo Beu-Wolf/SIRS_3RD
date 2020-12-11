@@ -12,6 +12,8 @@ public class ClientInfo implements java.io.Serializable {
     private boolean _online;
     private LinkedList<SharedFile> _sharedFiles = new LinkedList<>();
 
+    private static final long serialVersionUID = 42L;
+
     public ClientInfo(Certificate certificate, String username, String password) {
         _certificate = certificate;
         _username = username;

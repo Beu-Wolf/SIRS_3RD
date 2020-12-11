@@ -6,7 +6,6 @@ import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RRRDServer {
@@ -19,35 +18,25 @@ public class RRRDServer {
 
         Runtime.getRuntime().addShutdownHook(new Thread() {
 
-            ConcurrentHashMap<String, FileInfo> _files = null;
-            ConcurrentHashMap<String, ClientInfo> _clients;
 
             public void run() {
                 System.out.println(" Forcing Exit.");
-                _files = server.getFileInfo();
-                _clients = server.getClients();
+
+                SerializationWrapper serializationWrapper = new SerializationWrapper(server.getClients(), server.getFileInfo());
 
                 try {
 
-                    Path fileToDeletePath = Paths.get("tmp/files.ser");
-                    Files.deleteIfExists(fileToDeletePath);
-                    Path fileToDeletePath1 = Paths.get("tmp/clients.ser");
-                    Files.deleteIfExists(fileToDeletePath1);
+                    Path serverSerPath = Paths.get("tmp/server.ser");
+                    Files.deleteIfExists(serverSerPath);
 
                     FileOutputStream fileFilesOut =
-                            new FileOutputStream("tmp/files.ser");
-                    FileOutputStream fileClientOut =
-                            new FileOutputStream("tmp/clients.ser");
+                            new FileOutputStream(serverSerPath.toFile());
+
                     ObjectOutputStream outFiles = new ObjectOutputStream(fileFilesOut);
-                    ObjectOutputStream outClients = new ObjectOutputStream(fileClientOut);
-                    outFiles.writeObject(_files);
-                    outClients.writeObject(_clients);
+                    outFiles.writeObject(serializationWrapper);
                     outFiles.close();
-                    outClients.close();
                     fileFilesOut.close();
-                    fileClientOut.close();
-                    System.out.println("Serialized data of Files is saved in /tmp/files.ser");
-                    System.out.println("Serialized data of Clients is saved in /tmp/clients.ser");
+                    System.out.println("Serialized data of Server is saved in /tmp/server.ser");
                 } catch (IOException i) {
                     i.printStackTrace();
                 }

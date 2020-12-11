@@ -10,6 +10,7 @@ public class FileInfo implements java.io.Serializable {
     private ArrayList<ClientInfo> _editors = new ArrayList<>();
     private byte[] _signature;
     private ClientInfo _lastEditor;
+    private static final long serialVersionUID = 41112342L;
 
     public FileInfo(File file, ClientInfo owner, byte[] signature, ClientInfo lastEditor) {
         _file = file;
@@ -56,5 +57,9 @@ public class FileInfo implements java.io.Serializable {
 
     public boolean containsEditor(ClientInfo client) {
         return _editors.contains(client);
+    }
+
+    public String showEditors() {
+        return _editors.toString();
     }
 }
