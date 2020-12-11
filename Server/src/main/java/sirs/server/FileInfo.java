@@ -9,11 +9,13 @@ public class FileInfo implements java.io.Serializable {
     private ClientInfo _owner;
     private ArrayList<ClientInfo> _editors = new ArrayList<>();
     private byte[] _signature;
+    private ClientInfo _lastEditor;
 
-    public FileInfo(File file, ClientInfo owner, byte[] signature) {
+    public FileInfo(File file, ClientInfo owner, byte[] signature, ClientInfo lastEditor) {
         _file = file;
         _owner = owner;
         _signature = signature;
+        _lastEditor = lastEditor;
     }
 
     public ClientInfo getOwner() {
@@ -22,6 +24,14 @@ public class FileInfo implements java.io.Serializable {
 
     public int getCurrentVersion() {
         return _currentVersion;
+    }
+
+    public ClientInfo getLastEditor() {
+        return _lastEditor;
+    }
+
+    public void setLastEditor(ClientInfo lastEditor) {
+        _lastEditor = lastEditor;
     }
 
     public File getFile() {
