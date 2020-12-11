@@ -33,3 +33,8 @@ Server/keys/
 Client/keys/
 Backup/keys/
 CA/
+
+# Files
+Server/files
+Client/files
+Backup/files
