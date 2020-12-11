@@ -5,10 +5,13 @@ import java.io.File;
 import java.util.Arrays;
 import java.util.Objects;
 
-public class FileInfo {
+public class FileInfo implements java.io.Serializable {
     private String _owner;
     private File _file;
     private SecretKey _fileSymKey;
+
+    private static final long serialVersionUID = 2199257841593918478L;
+
 
     public FileInfo(String owner, File file, SecretKey symKey) {
         _owner = owner;

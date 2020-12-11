@@ -42,6 +42,22 @@ public class Client {
 
     public void interactive() {
         Scanner scanner = new Scanner(System.in);
+
+        File clientObj = new File("tmp/client.ser");
+
+        try {
+            if (clientObj.exists()) {
+                ObjectInputStream inClient;
+                try (FileInputStream clientIn = new FileInputStream("tmp/client.ser")) {
+                    inClient = new ObjectInputStream(clientIn);
+                    _files = (HashMap<Path, FileInfo>) inClient.readObject();
+                    inClient.close();
+                }
+                }
+            } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+            }
+
         try {
             connectToServer();
             ObjectOutputStream os = new ObjectOutputStream(_currentConnectionSocket.getOutputStream());
@@ -528,6 +544,24 @@ public class Client {
     private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "Exit");
+
+
+        try {
+            Path clientPath = Paths.get("tmp/client.ser");
+            Files.deleteIfExists(clientPath);
+
+            FileOutputStream fileFilesOut =
+                    new FileOutputStream(clientPath.toFile());
+
+            ObjectOutputStream outFiles = new ObjectOutputStream(fileFilesOut);
+            outFiles.writeObject(_files);
+            outFiles.close();
+            fileFilesOut.close();
+            System.out.println("Serialized data of Client is saved in /tmp/client.ser");
+
+        } catch (IOException i) {
+            i.printStackTrace();
+        }
 
         os.writeObject(request.toString());
         os.close();
