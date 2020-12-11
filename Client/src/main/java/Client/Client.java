@@ -45,27 +45,36 @@ public class Client {
     public void interactive() {
         Scanner scanner = new Scanner(System.in);
 
-        File clientObj = new File("tmp/client.ser");
+        System.out.print("Load data (from tmp folder): ");
+        String path = scanner.nextLine().trim();
 
-        try {
-            if (clientObj.exists()) {
-                ObjectInputStream inClient;
-                try (FileInputStream clientIn = new FileInputStream("tmp/client.ser")) {
-                    inClient = new ObjectInputStream(clientIn);
+        if (!path.isBlank()) {
 
-                    HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
-                    files = (HashMap<String, FileInfo>) inClient.readObject();
 
-                    for (String s: files.keySet()) {
-                        _files.put(Paths.get(s), files.get(s));
+            File clientObj = new File(Paths.get("tmp", path).toString());
+
+            try {
+                if (clientObj.exists()) {
+                    ObjectInputStream inClient;
+                    try (FileInputStream clientIn = new FileInputStream("tmp/client.ser")) {
+                        inClient = new ObjectInputStream(clientIn);
+
+                        HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
+                        files = (HashMap<String, FileInfo>) inClient.readObject();
+
+                        for (String s : files.keySet()) {
+                            _files.put(Paths.get(s), files.get(s));
+                        }
+
+                        inClient.close();
                     }
-
-                    inClient.close();
-                }
                 }
             } catch (IOException | ClassNotFoundException e) {
                 e.printStackTrace();
             }
+        } else {
+            System.out.println("Not loading data, fresh client");
+        }
 
         try {
             connectToServer();
@@ -76,7 +85,7 @@ public class Client {
 
                     String command = scanner.nextLine().trim();
                     if (Pattern.matches("^exit$", command)) {
-                        parseExit(os, is);
+                        parseExit(scanner, os, is);
                         if(_currentConnectionSocket != null) {
                             _currentConnectionSocket.close();
                         }
@@ -611,15 +620,24 @@ public class Client {
         return cipher.doFinal(bytes);
     }
 
-    private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
+    private void parseExit(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "Exit");
 
 
         try {
-            Path clientPath = Paths.get("tmp/client.ser");
 
-            HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
+            System.out.print("Store data in file (from tmp folder): ");
+            String path = scanner.nextLine().trim();
+
+            if (path.isBlank()) {
+                System.out.println("Not serializing, exiting...");
+                return;
+            }
+
+            Path clientPath = Paths.get("tmp", path);
+
+            HashMap<String, FileInfo> files = new HashMap<>();
 
             Files.deleteIfExists(clientPath);
 
@@ -636,7 +654,7 @@ public class Client {
             outFiles.writeObject(files);
             outFiles.close();
             fileFilesOut.close();
-            System.out.println("Serialized data of Client is saved in /tmp/client.ser");
+            System.out.println("Serialized data of Client is saved in " + clientPath.toString());
 
         } catch (IOException i) {
             i.printStackTrace();
