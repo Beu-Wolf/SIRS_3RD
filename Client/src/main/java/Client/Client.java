@@ -55,7 +55,7 @@ public class Client {
                 }
                 }
             } catch (IOException | ClassNotFoundException e) {
-            e.printStackTrace();
+                e.printStackTrace();
             }
 
         try {
