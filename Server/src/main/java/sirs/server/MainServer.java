@@ -678,7 +678,6 @@ class ServerThread extends Thread {
 
     private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
         String line;
-        System.out.println("Waiting");
         line = (String) is.readObject();
 
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
