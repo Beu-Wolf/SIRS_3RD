@@ -139,3 +139,6 @@ To stop your connection to the Server type `exit` after the prompt. You will be 
 
 ## Ransomware
 To simulate a ransomware attack, go to the Server process (in VM or locally) and change one of the stored files (by deleting or adding characters). Then do a `get file` in one of the clients for the specified file. You will see the file will be recovered from the backup and the client will have the newest correct version of the file.
+
+## Cleanup
+If at any time you want to start the system from scratch, run the `cleanup.sh` script. It will remove all files from Client, Server and Backup and also all serialization files inside the `tmp` folder
