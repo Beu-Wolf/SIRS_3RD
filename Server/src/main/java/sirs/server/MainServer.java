@@ -56,7 +56,6 @@ class ServerThread extends Thread {
 
             while(!exit ) {
                 line = (String) is.readObject();
-                System.out.println("read: " + line);
 
                 JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
 
@@ -96,7 +95,6 @@ class ServerThread extends Thread {
                 }
                 if (!exit) {
                     assert reply != null;
-                    System.out.println("Sending: " + reply);
                     os.writeObject(reply.toString());
                     os.flush();
                 }
@@ -191,7 +189,6 @@ class ServerThread extends Thread {
     public void registerClient(Certificate cert, String username, String password) {
         _clients.put(username, new ClientInfo(cert, username, password));
         _loggedInUser = username;
-        System.out.println(_clients);
     }
 
 
@@ -220,13 +217,11 @@ class ServerThread extends Thread {
             new FileOutputStream(file).close(); // Clean file
 
             byte[] computedHash = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
             // Get client signature
             String line = (String) is.readObject();
-            System.out.println("read: " + line);
 
             request = JsonParser.parseString(line).getAsJsonObject();
 
@@ -308,13 +303,11 @@ class ServerThread extends Thread {
             new FileOutputStream(file).close(); // Clean file
 
             byte[] computedHash = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
             // Get client signature
             String line = (String) is.readObject();
-            System.out.println("read: " + line);
 
             request = JsonParser.parseString(line).getAsJsonObject();
 
@@ -370,7 +363,6 @@ class ServerThread extends Thread {
         System.out.println("Backup Path: " + backupFilePath);
         backupRequest.addProperty("path", backupFilePath.toString());
 
-        System.out.println(backupRequest.toString());
         bos.writeObject(backupRequest.toString());
 
         ackMessage(bis);
@@ -395,7 +387,6 @@ class ServerThread extends Thread {
         backupRequest.addProperty("operation", "RecoverFile");
         backupRequest.addProperty("path", backupFilePath.toString());
 
-        System.out.println(backupRequest.toString());
         bos.writeObject(backupRequest.toString());
 
         ackMessage(bis);
@@ -473,7 +464,6 @@ class ServerThread extends Thread {
             ackMessage(is);
 
             JsonObject cipheredKeyJson = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
-            System.out.println(cipheredKeyJson.toString());
             byte[] cipheredKey = Base64.getDecoder().decode(cipheredKeyJson.get("cipheredFileKey").getAsString());
 
             ClientInfo client = _clients.get(username);
@@ -509,15 +499,12 @@ class ServerThread extends Thread {
             }
 
             FileInfo file = _files.get(path);
-            System.out.println("File: " + file.toString() + " Editor: " + file.showEditors());
 
             if (!file.containsEditor(client)) {
                 throw new NoPermissionException(_loggedInUser, requestPath);
             }
 
             sendAck(os);
-
-            /* TODO: Signature Validation and Backup? */
 
             // Verify if file was not tampered with when was in the server (Ransomware)
             byte[] currFileHash  = computeFileSignature(new FileInputStream(file.getFile()));
@@ -694,7 +681,6 @@ class ServerThread extends Thread {
         System.out.println("Waiting");
         line = (String) is.readObject();
 
-        System.out.println("Received:" + line);
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
         if (!reply.get("response").getAsString().equals("OK")) {
             throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
@@ -764,9 +750,6 @@ public class MainServer {
                     _clients = serializationWrapper.getClients();
                     _files = serializationWrapper.getFiles();
                 }
-
-                System.out.println("Client... " + _clients.toString());
-                System.out.println("Files..." + _files.toString());
 
             }
 

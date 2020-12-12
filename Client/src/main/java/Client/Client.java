@@ -133,12 +133,9 @@ public class Client {
         request.addProperty("username", username);
         request.addProperty("password", password);
 
-        System.out.println(request.toString());
         os.writeObject(request.toString());
 
         String line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
 
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
         System.out.println("Result: " + reply.get("response").getAsString());
@@ -170,16 +167,12 @@ public class Client {
         ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
 
         final Certificate cert = ks.getCertificate("client");
-        System.out.println(cert.getPublicKey());
 
         request.addProperty("cert", Base64.getEncoder().encodeToString(cert.getEncoded()));
 
-        System.out.println(request.toString());
         os.writeObject(request.toString());
 
         String line = (String) is.readObject();
-
-        System.out.println("Received:" + line);
 
         JsonObject replyJson = JsonParser.parseString(line).getAsJsonObject();
 
@@ -237,7 +230,6 @@ public class Client {
         request.addProperty("username", _username);
         request.addProperty("path", relativeFilePath.toString());
 
-        System.out.println(request.toString());
         os.writeObject(request.toString());
 
         // Wait for ACK
@@ -250,7 +242,6 @@ public class Client {
         request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("signature", Base64.getEncoder().encodeToString(fileSignature));
 
-        System.out.println(request.toString());
         os.writeObject(request.toString());
 
         ackMessage(is);
@@ -373,7 +364,6 @@ public class Client {
         }
         request.addProperty("path", relativeFilePath.toString());
 
-        System.out.println(request.toString());
         os.writeObject(request.toString());
 
         ackMessage(is);
@@ -385,7 +375,6 @@ public class Client {
         request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("signature", Base64.getEncoder().encodeToString(newFileSignature));
 
-        System.out.println(request.toString());
         os.writeObject(request.toString());
 
         ackMessage(is);
@@ -431,18 +420,15 @@ public class Client {
         String encodedPublicKey = JsonParser.parseString((String) is.readObject())
                 .getAsJsonObject().get("publicKey").getAsString();
 
-        System.out.println("Received public key: " + encodedPublicKey);
         byte[] publicKeyBytes = Base64.getDecoder().decode(encodedPublicKey);
         PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(publicKeyBytes));
 
         sendAck(os);
 
         FileInfo fi = _files.get(Paths.get(path));
-        System.out.println("File key: " + Base64.getEncoder().encodeToString(fi.getFileSymKey().getEncoded()));
 
         byte[] cipheredKey = cipherFileKey(fi.getFileSymKey(), publicKey);
         String encodedCipheredKey = Base64.getEncoder().encodeToString(cipheredKey);
-        System.out.println("Ciphered file key: " + encodedCipheredKey);
 
         JsonObject cipheredKeyJson = JsonParser.parseString("{}").getAsJsonObject();
         cipheredKeyJson.addProperty("cipheredFileKey", encodedCipheredKey);
@@ -708,7 +694,6 @@ public class Client {
         System.out.println("Waiting");
         line = (String) is.readObject();
 
-        System.out.println("Received:" + line);
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
         if (!reply.get("response").getAsString().equals("OK")) {
             throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
