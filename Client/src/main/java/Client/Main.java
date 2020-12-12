@@ -4,6 +4,7 @@ public class Main {
     public static void main(String args[]) {
         String keysDir = "keys";
         String filesDir = "files";
+        String serverHost = null;
 
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("-k")) {
@@ -18,18 +19,24 @@ public class Main {
                 } else {
                     printUsage();
                 }
+            } else if (serverHost == null) {
+                serverHost = args[i];
             } else {
                 printUsage();
             }
         }
 
-        Client client = new Client("localhost", 10000, filesDir, keysDir);
+        if (serverHost == null) {
+            serverHost = "localhost";
+        }
+
+        Client client = new Client(serverHost, 10000, filesDir, keysDir);
 
         client.interactive();
     }
 
     public static void printUsage() {
-        System.err.println("Usage: client [-k keys_folder] [-f files_folder]");
+        System.err.println("Usage: client [server_host] [-k keys_folder] [-f files_folder]");
         System.exit(1);
     }
 }
