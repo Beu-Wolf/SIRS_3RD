@@ -70,8 +70,6 @@ After that you can copy each module to the wanted VM.
 
 **NOTE 2:** In client machines, delete all but one of the created `<keysRootFolder>` and change the folder name do `keys`. This will simulate a client that only knows its keys.
 
-**NOTE 3:** If you have copied just the module (with CA folder, as in NOTE 1), you can delete the `pom.xml` file and rename the `pom_VM.xml` file to `pom.xml`.
-
 In each machine run:
 ```
 mvn compile
