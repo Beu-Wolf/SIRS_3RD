@@ -29,7 +29,6 @@ mvn compile
   - run `mvn exec:java`
   
 #### Client:
-   <!-- - Make sure there is a `files` folder inside the main folder and a `sharedFiles` folder inside the `files` folder -->
   - For each client, make sure there exists a `<fileRootFolder>` and a `<keysRootFolder>` inside the main folder. Also `<fileRootFolder>` must have a `sharedFiles` folder inside it
   - Make sure there is a `tmp` folder inside the main folder
   - run `mvn exec:java -Dexec.args="-f <fileRootFolder> -k <keysRootFolder>"` 
@@ -54,11 +53,13 @@ One machine per node with
 ### Build: <!-- maybe discriminate by node-->
 Make sure to run the scripts described in [Build Locally](#build-locally) beforehand in the folder with **ALL** the modules (Client, Server, Backup).
 If you want to have more than one client, also run `genclient.sh <keysRootFolder>` as many times as wanted.
-After that you can copy each module to the wanted VM.
+After that you can copy each module to the wanted VM. 
 
 **NOTE 1:** Always copy the CA folder alongside with wanted module, as this has the CA files that all nodes will need.
 
 **NOTE 2:** In client machines, delete all but one of the created `<keysRootFolder>` and change the folder name do `keys`. This will simulate a client that only knows its keys.
+
+**NOTE 3:** If you have copied just the module (with CA folder, as in NOTE 1), you can delete the `pom.xml` file and rename the `pom_VM.xml` file to `pom.xml`.
 
 In each machine run:
 ```
@@ -77,6 +78,8 @@ mvn compile
 
 
 ## Commands
+
+When starting the client, you will be prompted to say in which file to load a previously saved client. If it is the first time you are executing the client or don't want to load a store one, just press `Enter` without inputing a filename.
 
 ### Login/Register
 In order to start using the system you must first register. Type `register` next to the `>` prompt and follow the procedure. If at any time you need to login, just type `login` and write your username and password.
@@ -100,7 +103,7 @@ To get the newest version of a file stored in the Server that you also have loca
 To revoke the authorization of a user to edit a file, type `revoke file` after the prompt. Type the file path (also starting in the `<filesRootFolder>`), and then the user to which you want to revoke the authorization. You can't revoke from a file not created by you, that is, not inside the `sharedFiles` folder.
 
 ### Exit
-To stop your connection to the Server type `exit` after the prompt
+To stop your connection to the Server type `exit` after the prompt. You will be prompted to say in which file to store this client. If you don't want to save the current state of this client, just press `Enter` without specifying a file.
 
 ## Ransomware
 To simulate a ransomware attack, go to the Server process (in VM or locally) and change one of the stored files (by deleting or adding characters). Then do a `get file` in one of the clients for the specified file. You will see the file will be recovered from the backup and the client will have the newest correct version of the file.
