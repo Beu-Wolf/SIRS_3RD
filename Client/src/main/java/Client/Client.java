@@ -118,7 +118,7 @@ public class Client {
     public void parseLogin(Console clientConsole, ObjectOutputStream os, ObjectInputStream is) throws IOException, ClassNotFoundException {
 
         clientConsole.printf("Please enter your username: ");
-        String username = String.valueOf(clientConsole.readPassword());
+        String username = clientConsole.readLine().trim();
         _username = username;
         clientConsole.printf("Please enter your password: ");
         String password = String.valueOf(clientConsole.readPassword());
