@@ -4,7 +4,7 @@ SIRS course project 2020-2021
 ## Run locally (clients, server and backup in same machine)
 
 ### Pre-requisites:
- - Linux (Ubuntu 20.04, openSuse)
+ - Linux (e.g. Ubuntu 20.04, openSuse)
  - Java 11
  - Maven
  - Keytool
@@ -37,7 +37,7 @@ mvn compile
   ![](screenshots/BackupFolder.png)
   
 #### Client:
-  - For each client, make sure there exists a `<fileRootFolder>` and a `<keysRootFolder>` inside the main folder. Also `<fileRootFolder>` must have a `sharedFiles` folder inside it
+  - For each client, make sure there exists a `<fileRootFolder>`, which is `files/` by default, and a `<keysRootFolder>`, which is `keys/` by default, inside the main folder. Also `<fileRootFolder>` must have a `sharedFiles` folder inside it
   - Make sure there is a `tmp` folder inside the main folder
   - run `mvn exec:java -Dexec.args="-f <fileRootFolder> -k <keysRootFolder>"` 
   
@@ -66,9 +66,7 @@ Make sure to run the scripts described in [Build Locally](#build-locally) before
 If you want to have more than one client, also run `genclient.sh <keysRootFolder>` as many times as wanted.
 After that you can copy each module to the wanted VM. 
 
-**NOTE 1:** Always copy the CA folder alongside with wanted module, as this has the CA files that all nodes will need.
-
-**NOTE 2:** In client machines, delete all but one of the created `<keysRootFolder>` and change the folder name do `keys`. This will simulate a client that only knows its keys.
+**NOTE:** In client machines, delete all but one of the created `<keysRootFolder>` and change the folder name do `keys`.
 
 In each machine run:
 ```
@@ -77,13 +75,13 @@ mvn compile
 
 ### Exec:
 #### Server VM:
-  - run `mvn exec:java`
+  - run `mvn exec:java -Dexec.args="192.168.0.200"`
   
 #### Backup VM:
   - run `mvn exec:java`
   
 #### Client VM:
-  - run `mvn exec:java` 
+  - run `mvn exec:java -Dexec.args="192.168.0.100"` 
 
 ## Serialization
 Server and Backup will always pick up from the point when they were shutdown, by loading the `tmp/<backup|server>.ser` file (if it exists) and will always save their current state to the same `.ser` file when being shutdown (through `Ctrl^C`). 
