@@ -20,6 +20,8 @@ import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class Client {
 
@@ -42,6 +44,38 @@ public class Client {
 
     public void interactive() {
         Scanner scanner = new Scanner(System.in);
+
+        System.out.print("Load data (from tmp folder): ");
+        String path = scanner.nextLine().trim();
+
+        if (!path.isBlank()) {
+
+
+            File clientObj = new File(Paths.get("tmp", path).toString());
+
+            try {
+                if (clientObj.exists()) {
+                    ObjectInputStream inClient;
+                    try (FileInputStream clientIn = new FileInputStream("tmp/client.ser")) {
+                        inClient = new ObjectInputStream(clientIn);
+
+                        HashMap<String, FileInfo> files = new HashMap<String, FileInfo>();
+                        files = (HashMap<String, FileInfo>) inClient.readObject();
+
+                        for (String s : files.keySet()) {
+                            _files.put(Paths.get(s), files.get(s));
+                        }
+
+                        inClient.close();
+                    }
+                }
+            } catch (IOException | ClassNotFoundException e) {
+                e.printStackTrace();
+            }
+        } else {
+            System.out.println("Not loading data, fresh client");
+        }
+
         try {
             connectToServer();
             ObjectOutputStream os = new ObjectOutputStream(_currentConnectionSocket.getOutputStream());
@@ -51,7 +85,7 @@ public class Client {
 
                     String command = scanner.nextLine().trim();
                     if (Pattern.matches("^exit$", command)) {
-                        parseExit(os, is);
+                        parseExit(scanner, os, is);
                         if(_currentConnectionSocket != null) {
                             _currentConnectionSocket.close();
                         }
@@ -137,6 +171,7 @@ public class Client {
         ks.load(new FileInputStream(_keysDir + "/client.keystore.pk12"), _keyStorePass);
 
         final Certificate cert = ks.getCertificate("client");
+        System.out.println(cert.getPublicKey());
 
         request.addProperty("cert", Base64.getEncoder().encodeToString(cert.getEncoded()));
 
@@ -585,9 +620,45 @@ public class Client {
         return cipher.doFinal(bytes);
     }
 
-    private void parseExit(ObjectOutputStream os, ObjectInputStream is) throws IOException {
+    private void parseExit(Scanner scanner, ObjectOutputStream os, ObjectInputStream is) throws IOException {
         JsonObject request = JsonParser.parseString("{}").getAsJsonObject();
         request.addProperty("operation", "Exit");
+
+
+        try {
+
+            System.out.print("Store data in file (from tmp folder): ");
+            String path = scanner.nextLine().trim();
+
+            if (path.isBlank()) {
+                System.out.println("Not serializing, exiting...");
+                return;
+            }
+
+            Path clientPath = Paths.get("tmp", path);
+
+            HashMap<String, FileInfo> files = new HashMap<>();
+
+            Files.deleteIfExists(clientPath);
+
+            FileOutputStream fileFilesOut =
+                    new FileOutputStream(clientPath.toFile());
+
+            ObjectOutputStream outFiles = new ObjectOutputStream(fileFilesOut);
+
+
+            for (Path p: _files.keySet()) {
+                files.put(p.toString(), _files.get(p));
+            }
+
+            outFiles.writeObject(files);
+            outFiles.close();
+            fileFilesOut.close();
+            System.out.println("Serialized data of Client is saved in " + clientPath.toString());
+
+        } catch (IOException i) {
+            i.printStackTrace();
+        }
 
         os.writeObject(request.toString());
         os.close();

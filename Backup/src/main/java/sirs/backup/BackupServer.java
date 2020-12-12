@@ -7,12 +7,15 @@ import java.security.*;
 import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class BackupServer {
 
     private char[] _password = "changeit".toCharArray();
     private String _host;
     private int _port;
+    private ConcurrentHashMap<String, BackupFileInfo> _files;
+
 
     public BackupServer(String host, int port) {
         _host = host;
@@ -32,17 +35,19 @@ public class BackupServer {
 
             System.out.println("Running at " + _host + ":" + _port);
 
-            HashMap<String, BackupFileInfo> files = new HashMap<>();
+            _files = new ConcurrentHashMap<String, BackupFileInfo>();
 
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
-                BackupServerThread st = new BackupServerThread(files, s);
+                BackupServerThread st = new BackupServerThread(_files, s);
                 st.start();
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
+
+    ConcurrentHashMap<String, BackupFileInfo> getFileInfo() { return _files; }
 
     /* TODO: review types */
 

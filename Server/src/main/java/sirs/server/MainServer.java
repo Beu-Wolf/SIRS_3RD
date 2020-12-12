@@ -139,6 +139,7 @@ class ServerThread extends Thread {
         else {
             reply = JsonParser.parseString("{}").getAsJsonObject();
             reply.addProperty("response", "OK");
+            login(username);
         }
         return reply;
     }
@@ -167,8 +168,6 @@ class ServerThread extends Thread {
             String password = request.get("password").getAsString();
 
             String hashed = BCrypt.hashpw(password, BCrypt.gensalt(12));
-
-            System.out.println(hashed);
 
             if (!canRegister(username)) {
                 reply = JsonParser.parseString("{}").getAsJsonObject();
@@ -510,6 +509,7 @@ class ServerThread extends Thread {
             }
 
             FileInfo file = _files.get(path);
+            System.out.println("File: " + file.toString() + " Editor: " + file.showEditors());
 
             if (!file.containsEditor(client)) {
                 throw new NoPermissionException(_loggedInUser, requestPath);
@@ -738,8 +738,6 @@ public class MainServer {
 
     }
 
-
-    
     public void start() {
         SSLServerSocketFactory ssl = getServerSocketFactory();
         SSLSocketFactory backupSocketFactory = getBackupSocketFactory();
@@ -754,17 +752,37 @@ public class MainServer {
 
             System.out.println("Running at " + _host + ":" + _port);
 
+            File serverObj = new File("tmp/server.ser");
+
+            if (serverObj.exists()) {
+                ObjectInputStream inServer;
+                try (FileInputStream serverServerIn = new FileInputStream("tmp/server.ser")) {
+                    inServer = new ObjectInputStream(serverServerIn);
+
+                    SerializationWrapper serializationWrapper = (SerializationWrapper) inServer.readObject();
+
+                    _clients = serializationWrapper.getClients();
+                    _files = serializationWrapper.getFiles();
+                }
+
+                System.out.println("Client... " + _clients.toString());
+                System.out.println("Files..." + _files.toString());
+
+            }
+
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
                 ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory);
                 st.start();
             }
-        } catch (IOException e) {
+        } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();
         }
-
-
     }
+
+    ConcurrentHashMap<String, ClientInfo> getClients() { return  _clients;}
+
+    ConcurrentHashMap<String, FileInfo> getFileInfo() { return _files; }
 
     private SSLServerSocketFactory getServerSocketFactory() {
         SSLServerSocketFactory ssf;

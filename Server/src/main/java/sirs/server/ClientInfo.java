@@ -8,12 +8,14 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.stream.Collectors;
 
-public class ClientInfo {
+public class ClientInfo implements java.io.Serializable {
     private Certificate _certificate;
     private String _username;
     private String _password;
     private boolean _online;
     private HashMap<String, SharedFile> _sharedFiles = new HashMap<>();
+
+    private static final long serialVersionUID = 42L;
 
     public ClientInfo(Certificate certificate, String username, String password) {
         _certificate = certificate;

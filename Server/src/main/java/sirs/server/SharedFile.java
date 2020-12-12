@@ -1,9 +1,13 @@
 package sirs.server;
 
-public class SharedFile {
+import java.io.Serializable;
+
+public class SharedFile implements Serializable {
     private String _path; /* This is the same path entered by the user who shared the file */
     private byte[] _cipheredKey;
     private String _owner;
+
+    private static final long serialVersionUID = 112342L;
 
     public SharedFile(String path, byte[] cipheredKey, String owner) {
         _path = path;

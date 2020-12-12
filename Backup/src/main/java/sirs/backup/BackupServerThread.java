@@ -15,14 +15,15 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class BackupServerThread extends Thread {
     private Socket _socket;
 
-    private HashMap<String, BackupFileInfo> _files;
+    private ConcurrentHashMap<String, BackupFileInfo> _files;
     private String filesRootFolder = "files";
 
-    public BackupServerThread(HashMap<String, BackupFileInfo> files,  Socket socket) {
+    public BackupServerThread(ConcurrentHashMap<String, BackupFileInfo> files,  Socket socket) {
         _files = files;
         _socket = socket;
     }
@@ -30,6 +31,23 @@ public class BackupServerThread extends Thread {
     @Override
     public void run() {
         System.out.println("Starting backup server thread!");
+
+        File backupObj = new File("tmp/backup.ser");
+
+        try {
+            if (backupObj.exists()) {
+                ObjectInputStream inBackup;
+                try (FileInputStream backupIn = new FileInputStream("tmp/backup.ser")) {
+                    inBackup = new ObjectInputStream(backupIn);
+                    _files = (ConcurrentHashMap<String, BackupFileInfo>) inBackup.readObject();
+                    inBackup.close();
+                }
+            }
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+
+
         try {
             ObjectInputStream is = new ObjectInputStream(_socket.getInputStream());
             ObjectOutputStream os = new ObjectOutputStream(_socket.getOutputStream());

@@ -25,11 +25,13 @@ mvn compile
   
 #### Backup:
   - Make sure there is a `files` folder inside the main folder
+  - Make sure there is a `tmp` folder inside the main folder
   - run `mvn exec:java`
   
 #### Client:
    <!-- - Make sure there is a `files` folder inside the main folder and a `sharedFiles` folder inside the `files` folder -->
   - For each client, make sure there exists a `<fileRootFolder>` and a `<keysRootFolder>` inside the main folder. Also `<fileRootFolder>` must have a `sharedFiles` folder inside it
+  - Make sure there is a `tmp` folder inside the main folder
   - run `mvn exec:java -Dexec.args="-f <fileRootFolder> -k <keysRootFolder>"` 
   
 ## Run in VMs (each client, server and backup in different VMs)
