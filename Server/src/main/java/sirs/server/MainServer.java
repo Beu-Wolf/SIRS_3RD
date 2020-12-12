@@ -31,17 +31,19 @@ class ServerThread extends Thread {
     private char[] _password;
     private SSLSocket _socket;
 
+    private String _backupHost;
     private SSLSocketFactory _backupSocketFactory;
 
     private String filesRootFolder = "files";
 
 
-    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, ConcurrentHashMap<String, FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
+    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, ConcurrentHashMap<String, FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory, String backupHost) {
         _clients = clients;
         _files = files;
         _password = password;
         _socket = socket;
         _backupSocketFactory = backupSocketFactory;
+        _backupHost = backupHost;
     }
 
     @Override
@@ -689,7 +691,7 @@ class ServerThread extends Thread {
 
     private SSLSocket connectToBackupServer() {
         try {
-            SSLSocket s = (SSLSocket) _backupSocketFactory.createSocket("localhost", 20000);
+            SSLSocket s = (SSLSocket) _backupSocketFactory.createSocket(_backupHost, 20000);
             String[] protocols = new String[]{"TLSv1.3"};
             String[] cipherSuites = new String[]{"TLS_AES_128_GCM_SHA256"};
 
@@ -715,12 +717,13 @@ public class MainServer {
     private String _host;
     private int _port;
     private char[] _password;
+    private String _backupHost;
 
-    public MainServer(String host, int port) {
+    public MainServer(String host, int port, String backupHost) {
         _host = host;
         _port = port;
         _password = "changeit".toCharArray();
-
+        _backupHost = backupHost;
     }
 
     public void start() {
@@ -754,7 +757,7 @@ public class MainServer {
 
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
-                ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory);
+                ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory, _backupHost);
                 st.start();
             }
         } catch (IOException | ClassNotFoundException e) {

@@ -12,9 +12,19 @@ public class RRRDServer {
 
     public static void main(String[] args){
         String host = "localhost";
+        String backupHost = null;
         int port = 10000;
 
-        MainServer server = new MainServer(host, port);
+        if (args.length > 1) {
+            System.err.println("Usage: client [backup_host]");
+            System.exit(1);
+        } else if (args.length == 1) {
+            backupHost = args[0];
+        } else {
+            backupHost = "localhost";
+        }
+
+        MainServer server = new MainServer(host, port, backupHost);
 
         Runtime.getRuntime().addShutdownHook(new Thread() {
 
