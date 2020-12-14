@@ -9,7 +9,7 @@ import java.nio.file.Paths;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Main {
-    public static void main(String args[]) {
+    public static void main(String[] args) {
         String host = "localhost";
         int port = 20000;
 

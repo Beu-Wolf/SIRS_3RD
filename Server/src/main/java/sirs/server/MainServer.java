@@ -31,17 +31,19 @@ class ServerThread extends Thread {
     private char[] _password;
     private SSLSocket _socket;
 
+    private String _backupHost;
     private SSLSocketFactory _backupSocketFactory;
 
     private String filesRootFolder = "files";
 
 
-    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, ConcurrentHashMap<String, FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory) {
+    public ServerThread(ConcurrentHashMap<String, ClientInfo> clients, ConcurrentHashMap<String, FileInfo> files, char[] password, SSLSocket socket, SSLSocketFactory backupSocketFactory, String backupHost) {
         _clients = clients;
         _files = files;
         _password = password;
         _socket = socket;
         _backupSocketFactory = backupSocketFactory;
+        _backupHost = backupHost;
     }
 
     @Override
@@ -56,7 +58,6 @@ class ServerThread extends Thread {
 
             while(!exit ) {
                 line = (String) is.readObject();
-                System.out.println("read: " + line);
 
                 JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
 
@@ -96,7 +97,6 @@ class ServerThread extends Thread {
                 }
                 if (!exit) {
                     assert reply != null;
-                    System.out.println("Sending: " + reply);
                     os.writeObject(reply.toString());
                     os.flush();
                 }
@@ -191,7 +191,6 @@ class ServerThread extends Thread {
     public void registerClient(Certificate cert, String username, String password) {
         _clients.put(username, new ClientInfo(cert, username, password));
         _loggedInUser = username;
-        System.out.println(_clients);
     }
 
 
@@ -220,13 +219,11 @@ class ServerThread extends Thread {
             new FileOutputStream(file).close(); // Clean file
 
             byte[] computedHash = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
             // Get client signature
             String line = (String) is.readObject();
-            System.out.println("read: " + line);
 
             request = JsonParser.parseString(line).getAsJsonObject();
 
@@ -308,13 +305,11 @@ class ServerThread extends Thread {
             new FileOutputStream(file).close(); // Clean file
 
             byte[] computedHash = receiveFileFromSocket(file, is);
-            System.out.println("Computed Signature = " + Base64.getEncoder().encodeToString(computedHash));
 
             sendAck(os);
 
             // Get client signature
             String line = (String) is.readObject();
-            System.out.println("read: " + line);
 
             request = JsonParser.parseString(line).getAsJsonObject();
 
@@ -370,7 +365,6 @@ class ServerThread extends Thread {
         System.out.println("Backup Path: " + backupFilePath);
         backupRequest.addProperty("path", backupFilePath.toString());
 
-        System.out.println(backupRequest.toString());
         bos.writeObject(backupRequest.toString());
 
         ackMessage(bis);
@@ -395,7 +389,6 @@ class ServerThread extends Thread {
         backupRequest.addProperty("operation", "RecoverFile");
         backupRequest.addProperty("path", backupFilePath.toString());
 
-        System.out.println(backupRequest.toString());
         bos.writeObject(backupRequest.toString());
 
         ackMessage(bis);
@@ -473,7 +466,6 @@ class ServerThread extends Thread {
             ackMessage(is);
 
             JsonObject cipheredKeyJson = JsonParser.parseString((String) is.readObject()).getAsJsonObject();
-            System.out.println(cipheredKeyJson.toString());
             byte[] cipheredKey = Base64.getDecoder().decode(cipheredKeyJson.get("cipheredFileKey").getAsString());
 
             ClientInfo client = _clients.get(username);
@@ -509,15 +501,12 @@ class ServerThread extends Thread {
             }
 
             FileInfo file = _files.get(path);
-            System.out.println("File: " + file.toString() + " Editor: " + file.showEditors());
 
             if (!file.containsEditor(client)) {
                 throw new NoPermissionException(_loggedInUser, requestPath);
             }
 
             sendAck(os);
-
-            /* TODO: Signature Validation and Backup? */
 
             // Verify if file was not tampered with when was in the server (Ransomware)
             byte[] currFileHash  = computeFileSignature(new FileInputStream(file.getFile()));
@@ -691,10 +680,8 @@ class ServerThread extends Thread {
 
     private boolean ackMessage(ObjectInputStream is) throws IOException, ClassNotFoundException, MessageNotAckedException {
         String line;
-        System.out.println("Waiting");
         line = (String) is.readObject();
 
-        System.out.println("Received:" + line);
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
         if (!reply.get("response").getAsString().equals("OK")) {
             throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
@@ -704,7 +691,7 @@ class ServerThread extends Thread {
 
     private SSLSocket connectToBackupServer() {
         try {
-            SSLSocket s = (SSLSocket) _backupSocketFactory.createSocket("localhost", 20000);
+            SSLSocket s = (SSLSocket) _backupSocketFactory.createSocket(_backupHost, 20000);
             String[] protocols = new String[]{"TLSv1.3"};
             String[] cipherSuites = new String[]{"TLS_AES_128_GCM_SHA256"};
 
@@ -730,12 +717,13 @@ public class MainServer {
     private String _host;
     private int _port;
     private char[] _password;
+    private String _backupHost;
 
-    public MainServer(String host, int port) {
+    public MainServer(String host, int port, String backupHost) {
         _host = host;
         _port = port;
         _password = "changeit".toCharArray();
-
+        _backupHost = backupHost;
     }
 
     public void start() {
@@ -765,14 +753,11 @@ public class MainServer {
                     _files = serializationWrapper.getFiles();
                 }
 
-                System.out.println("Client... " + _clients.toString());
-                System.out.println("Files..." + _files.toString());
-
             }
 
             while (true) {
                 SSLSocket s = (SSLSocket) socket.accept();
-                ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory);
+                ServerThread st = new ServerThread(_clients, _files, _password, s, backupSocketFactory, _backupHost);
                 st.start();
             }
         } catch (IOException | ClassNotFoundException e) {

@@ -53,7 +53,6 @@ public class BackupServerThread extends Thread {
             ObjectOutputStream os = new ObjectOutputStream(_socket.getOutputStream());
 
             String line = (String) is.readObject();
-            System.out.println("read: " + line);
 
             JsonObject operationJson = JsonParser.parseString(line).getAsJsonObject();
 
@@ -70,7 +69,6 @@ public class BackupServerThread extends Thread {
                     throw new IOException("Invalid operation");
             }
             if (reply != null) {
-                System.out.println("Sending: " + reply);
                 os.writeObject(reply.toString());
             }
 
@@ -88,7 +86,7 @@ public class BackupServerThread extends Thread {
         try {
 
             Path filePath = Paths.get(System.getProperty("user.dir"), filesRootFolder, request.get("path").getAsString());
-            System.out.println("FilePath: " + filePath);
+            System.out.println("Backup file in filePath: " + filePath);
 
             // Write file
             Files.createDirectories(filePath.getParent());
@@ -124,6 +122,7 @@ public class BackupServerThread extends Thread {
         JsonObject reply;
         try {
             String pathstr = request.get("path").getAsString();
+            System.out.println("Recovering file in: " + pathstr);
            if(!_files.containsKey(pathstr)) {
                throw new MissingFileException(pathstr);
            }
@@ -181,7 +180,6 @@ public class BackupServerThread extends Thread {
         System.out.println("Waiting");
         line = (String) is.readObject();
 
-        System.out.println("Received:" + line);
         JsonObject reply = JsonParser.parseString(line).getAsJsonObject();
         if (!reply.get("response").getAsString().equals("OK")) {
             throw new MessageNotAckedException("Error: " + reply.get("response").getAsString());
